@@ -1,18 +1,28 @@
 # api.py
 import inspect
 import traceback
+from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Body, Depends, Query
 
 from datebase import get_db
-from model import *
-from scheduler import add_job, remove_job, update_job, get_all_jobs, pause_job, resume_job
+from resp_model import *
+from scheduler import add_job, remove_job, update_job, get_all_jobs, pause_job, resume_job, run_job
 from sql_model import JobLog
 from tasks import get_tasks
 from sqlalchemy.orm import Session
 
 router = APIRouter()
+
+
+@router.post("/run-job-now/", summary="立即执行")
+def run_job_now(job_id: str):
+    try:
+        run_job(job_id)
+        return {"message": f"任务 {job_id} 已立即执行"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/available-tasks/", response_model=List[AvailableTask], summary="可用任务函数列表")
@@ -176,10 +186,12 @@ def list_jobs():
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/logs/")
+@router.get("/logs/", summary="任务日志")
 def get_logs(
         job_id: Optional[str] = Query(None, description="任务ID进行模糊查找"),
-        status: Optional[str] = Query(None, description="日志状态进行筛选，例如'Succeeded'或'Failed'"),
+        status: Optional[bool] = Query(None, description="日志状态进行筛选，例如True或False"),
+        start_time: Optional[datetime] = Query(None, description="起始时间YYYY-MM-DDTHH:MM:SS"),
+        end_time: Optional[datetime] = Query(None, description="结束时间"),
         page: int = Query(1, ge=1, description="页数，从1开始"),
         limit: int = Query(10, le=100, description="每页返回的日志数量"),
         db: Session = Depends(get_db)
@@ -192,8 +204,17 @@ def get_logs(
             query = query.filter(JobLog.job_id.ilike(f"%{job_id}%"))
 
         # 根据状态进行筛选
-        if status:
+        if status is not None:
             query = query.filter(JobLog.status == status)
+
+        # 根据时间范围进行筛选
+        if start_time:
+            query = query.filter(JobLog.timestamp >= start_time)
+        if end_time:
+            query = query.filter(JobLog.timestamp <= end_time)
+
+        # 获取总数
+        total_count = query.count()
 
         # 计算偏移量
         offset = (page - 1) * limit
@@ -201,6 +222,8 @@ def get_logs(
         # 应用分页
         logs = query.order_by(JobLog.timestamp.desc()).offset(offset).limit(limit).all()
 
-        return logs
+        # 返回数据和总数
+        return {"count": total_count, "logs": logs}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

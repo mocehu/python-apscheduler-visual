@@ -1,5 +1,7 @@
 # scheduler.py
-from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
+import time
+
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_SUBMITTED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
@@ -7,7 +9,6 @@ import logging
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy.orm import Session
 
 from conf import DATABASE_URL
 from datebase import get_db
@@ -33,30 +34,50 @@ job_defaults = {
 scheduler = BackgroundScheduler(jobstores=jobstores, executors=executors, job_defaults=job_defaults)
 
 
-def log_to_db(job_id, status, message):
-    db: Session = next(get_db())  # 从生成器中获取实际的数据库会话对象
+def log_to_db(job_id, status, message, duration=None, output=None):
     try:
-        new_log = JobLog(job_id=job_id, status=status, message=message)
+        db = next(get_db())  # 获取数据库会话
+        new_log = JobLog(
+            job_id=job_id,
+            status=status,
+            message=message,
+            duration=duration,
+            output=output
+        )
         db.add(new_log)
         db.commit()
     except Exception as e:
-        db.rollback()  # 如果发生错误，回滚事务
-        raise e
-    finally:
-        db.close()  # 确保数据库会话被关闭
-
-    new_log = JobLog(job_id=job_id, status=status, message=message)
-    db.add(new_log)
-    db.commit()
+        logger.error(f"日志记录失败: {e}")
 
 
 # 监听任务执行事件
+# 全局字典来跟踪任务开始时间
+task_start_times = {}
+
+
 def job_listener(event):
-    if event.exception:
-        log_to_db(event.job_id, 'Failed', str(event.exception))
-        logger.error(f"任务 {event.job_id} 执行失败: {event.exception}")
-    else:
-        log_to_db(event.job_id, 'Succeeded', '任务成功执行')
+    job_id = event.job_id
+
+    if event.code == EVENT_JOB_SUBMITTED:
+        # 任务开始执行时记录当前时间（以毫秒为单位）
+        task_start_times[job_id] = int(time.time() * 1000)
+
+    elif event.code in (EVENT_JOB_EXECUTED, EVENT_JOB_ERROR):
+        end_time = int(time.time() * 1000)
+        start_time = task_start_times.pop(job_id, end_time)
+        duration = end_time - start_time  # 执行时长以毫秒为单位
+
+        if event.exception:
+            # 记录任务执行失败日志
+            log_to_db(job_id, False, str(event.exception), duration, None)
+            logger.error(f"任务 {job_id} 执行失败: {event.exception}")
+        else:
+            # 捕获任务的返回值
+            output = event.retval if hasattr(event, 'retval') else '无返回值'
+
+            # 记录任务成功执行的日志
+            log_to_db(job_id, True, '任务成功执行', duration, output)
+            logger.info(f"任务 {job_id} 执行成功: {output}. 执行时长: {duration}毫秒")
 
 
 def start_scheduler():
@@ -161,6 +182,16 @@ def pause_job(job_id):
 def resume_job(job_id):
     scheduler.resume_job(job_id)
     logger.info(f'恢复任务: {job_id}')
+
+
+def run_job(job_id):
+    # 获取任务
+    job = scheduler.get_job(job_id)
+    if not job:
+        raise ValueError(f"任务 {job_id} 不存在")
+
+    # 立即运行任务
+    job.func(*job.args, **job.kwargs)
 
 
 def get_all_jobs():

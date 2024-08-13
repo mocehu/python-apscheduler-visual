@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api import router
 from scheduler import start_scheduler, stop_scheduler
+from uvicorn.config import LOGGING_CONFIG
 
 
 @asynccontextmanager
@@ -15,6 +16,9 @@ async def lifespan(app: FastAPI):
     # 此代码将在关机期间运行
     stop_scheduler()
 
+
+# 日志格式设置
+LOGGING_CONFIG["formatters"]["default"]["fmt"] = "%(asctime)s | %(levelprefix)s| %(funcName)s:%(lineno)d - %(message)s"
 
 app = FastAPI(lifespan=lifespan)
 

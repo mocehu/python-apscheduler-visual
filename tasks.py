@@ -3,6 +3,8 @@ import io
 import os
 import sys
 
+from sync_uenc import sync_start
+
 
 def example_task(arg1: str, arg2: int = 10):
     """
@@ -71,10 +73,18 @@ def run_python_command(command: str):
     return output, error
 
 
-# 获取所有任务函数
+def sync_uenc_external_data():
+    """
+    同步违规外联外部锚点数据
+    :return:
+    """
+    res = sync_start()
+    return res
+
+
 def get_tasks():
     """
-    Automatically discovers all task functions in this module.
+    自动发现此模块中的所有任务函数。
     """
     func_whitelist = ['get_tasks']
     task_functions = {}
