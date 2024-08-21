@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>定时任务管理</title>
+    <title>计划任务管理</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="app">
-    <h1>定时任务管理</h1>
+    <h1>计划任务管理</h1>
     <button @click="setApiBaseUrl">设置 API 地址</button>
 
     <h2>可用任务</h2>
@@ -140,6 +140,7 @@
                 <td>{{ formatJobArgs(job.args) + formatJobArgs(job.kwargs) }}</td>
                 <td class="opt_btns">
                     <button @click="editJob(job)">编辑</button>
+                    <button @click="runJob(job.id)">立即执行</button>
                     <button @click="pauseJob(job.id)">暂停</button>
                     <button @click="resumeJob(job.id)">恢复</button>
                     <button @click="deleteJob(job.id)">删除</button>

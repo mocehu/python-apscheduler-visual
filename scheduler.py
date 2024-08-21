@@ -73,7 +73,7 @@ def job_listener(event):
             logger.error(f"任务 {job_id} 执行失败: {event.exception}")
         else:
             # 捕获任务的返回值
-            output = event.retval if hasattr(event, 'retval') else '无返回值'
+            duration, output = event.retval if hasattr(event, 'retval') else '无输出内容'
 
             # 记录任务成功执行的日志
             log_to_db(job_id, True, '任务成功执行', duration, output)
@@ -129,7 +129,7 @@ def remove_job(job_id):
     logger.info(f'移除任务: {job_id}')
 
 
-def update_job(job_id: str, trigger: str, trigger_args: dict, args: list, kwargs: dict):
+def update_job(func: str, job_id: str, trigger: str, trigger_args: dict, args: list, kwargs: dict):
     """
     更新任务的触发器和参数
     :param job_id: 任务ID
@@ -138,38 +138,32 @@ def update_job(job_id: str, trigger: str, trigger_args: dict, args: list, kwargs
     :param args: 任务参数
     :param kwargs: 任务关键字参数
     """
+    from tasks import get_tasks
+    tasks = get_tasks()
+    func_obj = tasks.get(func)
+    if not func_obj:
+        raise ValueError(f"任务函数 '{func}' 找不到")
+
     job = scheduler.get_job(job_id)
     if not job:
         raise ValueError(f"任务 {job_id} 不存在")
 
-    # 选择合适的触发器
     if trigger == 'interval':
-        trigger_obj = IntervalTrigger(
-            seconds=trigger_args.get('seconds', 0),
-            minutes=trigger_args.get('minutes', 0),
-            hours=trigger_args.get('hours', 0),
-            days=trigger_args.get('days', 0),
-            weeks=trigger_args.get('weeks', 0)
-        )
+        valid_args = {key: trigger_args[key] for key in ['weeks', 'days', 'hours', 'minutes', 'seconds'] if
+                      key in trigger_args}
+        trigger_obj = IntervalTrigger(**valid_args)
     elif trigger == 'cron':
-        trigger_obj = CronTrigger(
-            second=trigger_args.get('seconds', '*'),
-            minute=trigger_args.get('minutes', '*'),
-            hour=trigger_args.get('hours', '*'),
-            day_of_week=trigger_args.get('day_of_week', '*'),
-            day=trigger_args.get('day', '*'),
-            month=trigger_args.get('month', '*'),
-            year=trigger_args.get('year', '*')
-        )
+        valid_args = {key: trigger_args[key] for key in
+                      ['year', 'month', 'day', 'week', 'day_of_week', 'hour', 'minute', 'second'] if
+                      key in trigger_args}
+        trigger_obj = CronTrigger(**valid_args)
     elif trigger == 'date':
-        trigger_obj = DateTrigger(
-            run_date=trigger_args.get('run_date')
-        )
+        trigger_obj = DateTrigger(run_date=trigger_args.get('run_date'))
     else:
         raise ValueError(f"不支持的触发器类型: {trigger}")
 
     # 修改任务
-    job.modify(args=args, kwargs=kwargs)
+    job.modify(args=args, kwargs=kwargs, func=func_obj)
     scheduler.reschedule_job(job_id, trigger=trigger_obj)
     logger.info(f'更新任务: {job_id}')
 

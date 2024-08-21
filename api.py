@@ -120,6 +120,7 @@ def modify_job(job: JobCreate):
     """
     try:
         update_job(
+            func=job.func,
             job_id=job.job_id,
             trigger=job.trigger,
             trigger_args=job.trigger_args.dict() if job.trigger_args else {},

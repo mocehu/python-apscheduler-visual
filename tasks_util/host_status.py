@@ -3,7 +3,8 @@ import os
 import socket
 import requests
 
-from datebase import get_redis
+from datebase import get_redis, get_db
+from sql_model import ServerDeviceInfo
 
 
 def is_host_online(host):
@@ -96,9 +97,12 @@ def start_scan_host():
     外部锚点主机状态扫描
     :return:
     """
-    host_map = {
-        "47.100.253.200": 8000,
-        "124.222.75.44": 8000
-    }
-    for host, port in host_map.items():
+    db = next(get_db())
+    out_ips = db.query(ServerDeviceInfo.ip).filter(ServerDeviceInfo.device_type == 'out').all()
+
+    # 将查询结果转为列表
+    ip_list = [ip[0] for ip in out_ips]
+    port = 8000
+
+    for host in ip_list:
         check_host_and_service(host, port)

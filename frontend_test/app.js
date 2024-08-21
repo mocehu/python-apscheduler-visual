@@ -319,6 +319,17 @@ new Vue({
                 })
                 .catch(error => console.error('Error resuming job:', error));
         },
+        runJob(job_id) {
+            fetch(`${this.apiBaseUrl}/run-job-now/?job_id=${job_id}`, {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Job Running:', data);
+                    this.fetchJobs(); // 更新任务列表
+                })
+                .catch(error => console.error('Error running job:', error));
+        },
         resetNewJob() {
             this.newJob = {
                 func: '',

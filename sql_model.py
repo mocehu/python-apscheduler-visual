@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Text, TIMESTAMP, func, Boolean, Float, DateTime, UUID
+from sqlalchemy import Column, Integer, String, Text, TIMESTAMP, func, Boolean, Float, DateTime, UUID, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -37,3 +37,22 @@ class UencVoiaem(Base):
     sub_status = Column(String(255), nullable=True, default='0', comment="订阅状态,0未订阅,1已订阅")
     origin_type = Column(String(255), nullable=True, default='0', comment="获取方式,0自动,1手动")
     sync_time = Column(DateTime, nullable=False, server_default=func.now(), comment="数据同步时间")
+
+
+class ServerDeviceInfo(Base):
+    """
+    服务器设备信息，包括外部锚点和内部服务器
+    """
+    __tablename__ = 'server_dev_info'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ip = Column(String(32), unique=True)
+    mac = Column(String(32), nullable=True)
+    host = Column(String(64), nullable=True)
+    area = Column(String(32), nullable=True)
+    os = Column(String(64), nullable=True)
+    device_type = Column(String(32), nullable=False, default='out')
+    register_time = Column(DateTime, nullable=False)
+    last_online = Column(DateTime, nullable=True)
+    latest_sync_time = Column(DateTime, nullable=True)
+    description = Column(String(255), nullable=True)

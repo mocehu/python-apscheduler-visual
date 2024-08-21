@@ -1,9 +1,40 @@
+import functools
 import inspect
 import io
 import os
 import sys
+import time
+from contextlib import redirect_stdout
 
-from sync_uenc import sync_start
+from tasks_util.sync_uenc import sync_start
+
+
+def capture_print(func):
+    """
+    装饰器，捕获 print 输出并添加到 msg 变量中。
+
+    定时任务无法添加使用装饰器的函数，暂时无用
+    """
+
+    def wrapper(*args, **kwargs):
+        # 创建一个 StringIO 对象用于捕获 print 输出
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+        # 执行原始函数
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+
+        # 获取 print 输出内容
+        output = sys.stdout.getvalue()
+        sys.stdout = old_stdout
+
+        elapsed_time = (end_time - start_time) * 1000  # 计算执行时间（毫秒）
+
+        return elapsed_time, output
+
+    return wrapper
 
 
 def example_task(arg1: str, arg2: int = 10):
@@ -13,14 +44,39 @@ def example_task(arg1: str, arg2: int = 10):
     :param arg2:
     :return:
     """
-    print(f"执行任务，参数: {arg1}, {arg2}")
+
+    # 创建一个字符串缓冲区
+    start_time = time.time()
+    f = io.StringIO()
+
+    # 将输出重定向到缓冲区
+    with redirect_stdout(f):
+        print(f"执行任务，参数: {arg1}, {arg2}")
+
+    # 获取所有输出内容
+    output = f.getvalue()
+    end_time = time.time()
+    elapsed_time = (end_time - start_time) * 1000
+    return elapsed_time, output
 
 
 def another_task(param):
     """
     另一个打印所提供参数的任务。
     """
-    print(f"使用param执行另一个任务: {param}")
+    # 创建一个字符串缓冲区
+    start_time = time.time()
+    f = io.StringIO()
+
+    # 将输出重定向到缓冲区
+    with redirect_stdout(f):
+        print(f"使用param执行另一个任务: {param}")
+
+    # 获取所有输出内容
+    output = f.getvalue()
+    end_time = time.time()
+    elapsed_time = (end_time - start_time) * 1000
+    return elapsed_time, output
 
 
 def run_os_command(command: str):
@@ -29,8 +85,19 @@ def run_os_command(command: str):
     :param command:
     :return:
     """
-    os.system(command)
-    print(f"执行命令:{command}")
+    start_time = time.time()
+    f = io.StringIO()
+
+    # 将输出重定向到缓冲区
+    with redirect_stdout(f):
+        os.system(command)
+        print(f"执行命令:{command}")
+
+    # 获取所有输出内容
+    output = f.getvalue()
+    end_time = time.time()
+    elapsed_time = (end_time - start_time) * 1000
+    return elapsed_time, output
 
 
 def run_python_command(command: str):
@@ -39,38 +106,48 @@ def run_python_command(command: str):
     :param command: 要执行的Python代码
     :return: (output, error) 元组，其中output是命令的标准输出，error是标准错误
     """
-    # 保存当前的stdout和stderr
-    old_stdout = sys.stdout
-    old_stderr = sys.stderr
+    # 创建一个字符串缓冲区
+    start_time = time.time()
+    f = io.StringIO()
 
-    # 使用StringIO来捕获输出
-    new_stdout = io.StringIO()
-    new_stderr = io.StringIO()
+    # 将输出重定向到缓冲区
+    with redirect_stdout(f):
+        # 保存当前的stdout和stderr
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
 
-    sys.stdout = new_stdout
-    sys.stderr = new_stderr
+        # 使用StringIO来捕获输出
+        new_stdout = io.StringIO()
+        new_stderr = io.StringIO()
 
-    output = ''
-    error = ''
+        sys.stdout = new_stdout
+        sys.stderr = new_stderr
 
-    try:
-        # 执行Python代码
-        exec(command, globals())
-        output = new_stdout.getvalue()
-        error = new_stderr.getvalue()
-    except Exception as e:
-        # 捕获异常并记录到error中
-        error = str(e)
+        output = ''
+        error = ''
 
-    finally:
-        # 恢复原来的stdout和stderr
-        sys.stdout = old_stdout
-        sys.stderr = old_stderr
+        try:
+            # 执行Python代码
+            exec(command, globals())
+            output = new_stdout.getvalue()
+            error = new_stderr.getvalue()
+        except Exception as e:
+            # 捕获异常并记录到error中
+            error = str(e)
 
-    print("Output:", output)
-    print("Error:", error)
+        finally:
+            # 恢复原来的stdout和stderr
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
-    return output, error
+        print("Output:", output)
+        print("Error:", error)
+
+    # 获取所有输出内容
+    output = f.getvalue()
+    end_time = time.time()
+    elapsed_time = (end_time - start_time) * 1000
+    return elapsed_time, output
 
 
 def sync_uenc_external_data():
@@ -78,15 +155,45 @@ def sync_uenc_external_data():
     同步违规外联外部锚点数据
     :return:
     """
-    res = sync_start()
-    return res
+    start_time = time.time()
+    f = io.StringIO()
+
+    # 将输出重定向到缓冲区
+    with redirect_stdout(f):
+        sync_start()
+
+    # 获取所有输出内容
+    output = f.getvalue()
+    end_time = time.time()
+    elapsed_time = (end_time - start_time) * 1000
+    return elapsed_time, output
+
+
+def task_tmp_func():
+    """
+    任务函数模板
+    :return: 执行耗时，输出内容
+    """
+    # 创建一个字符串缓冲区
+    start_time = time.time()
+    f = io.StringIO()
+
+    # 将输出重定向到缓冲区
+    with redirect_stdout(f):
+        pass
+
+    # 获取所有输出内容
+    output = f.getvalue()
+    end_time = time.time()
+    elapsed_time = (end_time - start_time) * 1000
+    return elapsed_time, output
 
 
 def get_tasks():
     """
     自动发现此模块中的所有任务函数。
     """
-    func_whitelist = ['get_tasks']
+    func_whitelist = ['get_tasks', 'capture_print', 'task_tmp_func']
     task_functions = {}
     for name, obj in globals().items():
         if name in func_whitelist:

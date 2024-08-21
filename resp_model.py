@@ -4,20 +4,20 @@ from typing import List, Dict, Any, Optional, Union
 
 class CronTrigger(BaseModel):
     day_of_week: Optional[int] = None  # '0-6', 0为周日.
-    day: Optional[int] = None  # 1-31
-    month: Optional[int] = None  # 1-12
+    day: Optional[int] = 1  # 1-31
+    month: Optional[int] = 1  # 1-12
     year: Optional[int] = None  # e.g., 2024
-    hour: Optional[int] = None  # 0-23
-    minute: Optional[int] = None  # 0-59
-    second: Optional[int] = None  # 0-59
+    hour: Optional[int] = 0  # 0-23
+    minute: Optional[int] = 0  # 0-59
+    second: Optional[int] = 0  # 0-59
 
 
 class IntervalTrigger(BaseModel):
-    seconds: Optional[int] = None
-    minutes: Optional[int] = None
-    hours: Optional[int] = None
-    days: Optional[int] = None
-    weeks: Optional[int] = None
+    seconds: Optional[int] = 0
+    minutes: Optional[int] = 0
+    hours: Optional[int] = 0
+    days: Optional[int] = 0
+    weeks: Optional[int] = 0
 
 
 class DateTrigger(BaseModel):
