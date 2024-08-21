@@ -6,36 +6,6 @@ import sys
 import time
 from contextlib import redirect_stdout
 
-from tasks_util.sync_uenc import sync_start
-
-
-def capture_print(func):
-    """
-    装饰器，捕获 print 输出并添加到 msg 变量中。
-
-    定时任务无法添加使用装饰器的函数，暂时无用
-    """
-
-    def wrapper(*args, **kwargs):
-        # 创建一个 StringIO 对象用于捕获 print 输出
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-
-        # 执行原始函数
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-
-        # 获取 print 输出内容
-        output = sys.stdout.getvalue()
-        sys.stdout = old_stdout
-
-        elapsed_time = (end_time - start_time) * 1000  # 计算执行时间（毫秒）
-
-        return elapsed_time, output
-
-    return wrapper
-
 
 def example_task(arg1: str, arg2: int = 10):
     """
@@ -52,25 +22,6 @@ def example_task(arg1: str, arg2: int = 10):
     # 将输出重定向到缓冲区
     with redirect_stdout(f):
         print(f"执行任务，参数: {arg1}, {arg2}")
-
-    # 获取所有输出内容
-    output = f.getvalue()
-    end_time = time.time()
-    elapsed_time = (end_time - start_time) * 1000
-    return elapsed_time, output
-
-
-def another_task(param):
-    """
-    另一个打印所提供参数的任务。
-    """
-    # 创建一个字符串缓冲区
-    start_time = time.time()
-    f = io.StringIO()
-
-    # 将输出重定向到缓冲区
-    with redirect_stdout(f):
-        print(f"使用param执行另一个任务: {param}")
 
     # 获取所有输出内容
     output = f.getvalue()
@@ -142,25 +93,6 @@ def run_python_command(command: str):
 
         print("Output:", output)
         print("Error:", error)
-
-    # 获取所有输出内容
-    output = f.getvalue()
-    end_time = time.time()
-    elapsed_time = (end_time - start_time) * 1000
-    return elapsed_time, output
-
-
-def sync_uenc_external_data():
-    """
-    同步违规外联外部锚点数据
-    :return:
-    """
-    start_time = time.time()
-    f = io.StringIO()
-
-    # 将输出重定向到缓冲区
-    with redirect_stdout(f):
-        sync_start()
 
     # 获取所有输出内容
     output = f.getvalue()
