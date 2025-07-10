@@ -81,21 +81,16 @@ def _validate_trigger(job: JobCreate) -> Dict[str, Any]:
     """验证触发器参数"""
     # 验证触发器类型及其参数
     trigger_args = job.trigger_args or {}
-    
     if job.trigger == "cron":
-        if not isinstance(trigger_args, CronTrigger):
-            raise ValueError("Cron 触发器参数错误")
-        return {k: v for k, v in trigger_args.dict().items() if v is not None}
+        model = CronTrigger(**trigger_args)
     elif job.trigger == "interval":
-        if not isinstance(trigger_args, IntervalTrigger):
-            raise ValueError("Interval 触发器参数错误")
-        return {k: v for k, v in trigger_args.dict().items() if v is not None}
+        model = IntervalTrigger(**trigger_args)
     elif job.trigger == "date":
-        if not isinstance(trigger_args, DateTrigger):
-            raise ValueError("Date 触发器参数错误")
-        return {k: v for k, v in trigger_args.dict().items() if v is not None}
+        model = DateTrigger(**trigger_args)
     else:
         raise ValueError(f"不支持的触发器类型 '{job.trigger}'")
+
+    return {k: v for k, v in model.dict().items() if v is not None}
 
 
 @router.post("/add-job/", summary="新建任务")

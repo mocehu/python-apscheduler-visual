@@ -40,7 +40,7 @@ class JobCreate(BaseModel):
     job_id: str  # 任务ID
 
     # 触发器特有字段
-    trigger_args: Optional[Union[CronTrigger, IntervalTrigger, DateTrigger]] = None
+    trigger_args: Optional[Dict[str, Any]] = None
 
 
 class JobResponse(BaseModel):
