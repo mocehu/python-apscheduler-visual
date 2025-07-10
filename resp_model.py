@@ -1,5 +1,13 @@
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Union
+from datetime import datetime
+
+
+class ResponseModel(BaseModel):
+    """统一响应模型"""
+    code: int = 200  # 状态码
+    msg: str = "成功"  # 响应消息
+    data: Any = None  # 响应数据
 
 
 class CronTrigger(BaseModel):
@@ -58,6 +66,27 @@ class LogEntry(BaseModel):
     status: str
     message: str
     timestamp: str
+
+
+class JobLogResponse(BaseModel):
+    """任务日志响应模型"""
+    id: int
+    job_id: str
+    status: bool
+    message: str
+    duration: Optional[float] = None
+    output: Optional[str] = None
+    timestamp: datetime
+    
+    model_config = {
+        "from_attributes": True  # 启用ORM模式，允许从ORM对象创建Pydantic模型
+    }
+
+
+class JobLogPage(BaseModel):
+    """任务日志分页响应"""
+    count: int
+    logs: List[JobLogResponse]
 
 
 TYPE_MAP = {

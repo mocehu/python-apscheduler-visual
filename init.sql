@@ -1,0 +1,9 @@
+CREATE TABLE job_logs (
+    id SERIAL PRIMARY KEY,
+    job_id VARCHAR(128) NOT NULL,
+    status BOOLEAN NOT NULL,
+    message TEXT NOT NULL,
+    duration DOUBLE PRECISION,
+    output TEXT,
+    timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

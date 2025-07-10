@@ -65,19 +65,51 @@ def job_listener(event):
     elif event.code in (EVENT_JOB_EXECUTED, EVENT_JOB_ERROR):
         end_time = int(time.time() * 1000)
         start_time = task_start_times.pop(job_id, end_time)
-        duration = end_time - start_time  # 执行时长以毫秒为单位
+        execution_duration = end_time - start_time  # 执行时长以毫秒为单位
 
         if event.exception:
             # 记录任务执行失败日志
-            log_to_db(job_id, False, str(event.exception), duration, None)
+            log_to_db(job_id, False, str(event.exception), execution_duration, None)
             logger.error(f"任务 {job_id} 执行失败: {event.exception}")
         else:
-            # 捕获任务的返回值
-            duration, output = event.retval if hasattr(event, 'retval') else '无输出内容'
-
-            # 记录任务成功执行的日志
-            log_to_db(job_id, True, '任务成功执行', duration, output)
-            logger.info(f"任务 {job_id} 执行成功: {output}. 执行时长: {duration}毫秒")
+            # 获取任务的返回值，处理新旧两种返回格式
+            if hasattr(event, 'retval'):
+                result = event.retval
+                # 检查返回值类型
+                if isinstance(result, dict):
+                    # 新格式返回值：字典格式
+                    duration = result.get('elapsed_time', execution_duration)
+                    output = result.get('output', '')
+                    status = result.get('status', True)
+                    error = result.get('error', None)
+                    task_result = result.get('result', None)
+                    
+                    # 合并输出和结果
+                    if output and task_result:
+                        output = f"{output}\n结果: {task_result}"
+                    elif task_result:
+                        output = f"结果: {task_result}"
+                    
+                    # 根据状态记录日志
+                    if status:
+                        log_to_db(job_id, True, '任务成功执行', duration, output)
+                        logger.info(f"任务 {job_id} 执行成功: {output}. 执行时长: {duration}毫秒")
+                    else:
+                        log_to_db(job_id, False, error or '任务执行失败', duration, output)
+                        logger.error(f"任务 {job_id} 执行失败: {error or '未知错误'}. 执行时长: {duration}毫秒")
+                elif isinstance(result, tuple) and len(result) == 2:
+                    # 旧格式返回值：(duration, output)元组
+                    duration, output = result
+                    log_to_db(job_id, True, '任务成功执行', duration, output)
+                    logger.info(f"任务 {job_id} 执行成功: {output}. 执行时长: {duration}毫秒")
+                else:
+                    # 其他类型的返回值，直接当作输出
+                    log_to_db(job_id, True, '任务成功执行', execution_duration, str(result))
+                    logger.info(f"任务 {job_id} 执行成功: {result}. 执行时长: {execution_duration}毫秒")
+            else:
+                # 无返回值
+                log_to_db(job_id, True, '任务成功执行', execution_duration, '无输出内容')
+                logger.info(f"任务 {job_id} 执行成功，无返回值. 执行时长: {execution_duration}毫秒")
 
 
 def start_scheduler():
@@ -91,13 +123,14 @@ def stop_scheduler():
 
 
 def add_job(func_name, trigger, args=None, kwargs=None, job_id=None, **trigger_args):
-    from tasks import get_tasks
-    tasks = get_tasks()
-    func = tasks.get(func_name)
+    from tasks import get_task
+    
+    task_func = get_task(func_name)
+    if not task_func:
+        raise ValueError(f"任务函数 '{func_name}' 找不到")
+    
     if scheduler.get_job(job_id):
         raise ValueError(f"任务 ID '{job_id}' 已存在")
-    if not func:
-        raise ValueError(f"任务函数 '{func_name}' 找不到")
 
     # 设置触发器
     if trigger == "cron":
@@ -114,7 +147,7 @@ def add_job(func_name, trigger, args=None, kwargs=None, job_id=None, **trigger_a
 
     # 添加任务
     scheduler.add_job(
-        func,
+        task_func,
         aps_trigger,
         args=args,
         kwargs=kwargs,
@@ -138,10 +171,10 @@ def update_job(func: str, job_id: str, trigger: str, trigger_args: dict, args: l
     :param args: 任务参数
     :param kwargs: 任务关键字参数
     """
-    from tasks import get_tasks
-    tasks = get_tasks()
-    func_obj = tasks.get(func)
-    if not func_obj:
+    from tasks import get_task
+    
+    task_func = get_task(func)
+    if not task_func:
         raise ValueError(f"任务函数 '{func}' 找不到")
 
     job = scheduler.get_job(job_id)
@@ -163,7 +196,7 @@ def update_job(func: str, job_id: str, trigger: str, trigger_args: dict, args: l
         raise ValueError(f"不支持的触发器类型: {trigger}")
 
     # 修改任务
-    job.modify(args=args, kwargs=kwargs, func=func_obj)
+    job.modify(args=args, kwargs=kwargs, func=task_func)
     scheduler.reschedule_job(job_id, trigger=trigger_obj)
     logger.info(f'更新任务: {job_id}')
 
@@ -185,7 +218,10 @@ def run_job(job_id):
         raise ValueError(f"任务 {job_id} 不存在")
 
     # 立即运行任务
-    job.func(*job.args, **job.kwargs)
+    result = job.func(*job.args, **job.kwargs)
+    
+    # 返回任务执行结果
+    return result
 
 
 def get_all_jobs():

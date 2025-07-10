@@ -2,6 +2,8 @@
 
 一键启动🚀
 
+使用init.sql初始化表
+
 ```
 python3 main.py
 ```
