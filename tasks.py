@@ -34,17 +34,17 @@
 """
 
 import functools
+import importlib
 import inspect
 import io
-import os
+import logging
+import pkgutil
+import subprocess
 import sys
 import time
-import importlib
-import pkgutil
-import logging
-from typing import Dict, List, Any, Callable, Tuple, Optional, Union
 from contextlib import redirect_stdout
 from pathlib import Path
+from typing import Dict, List, Any, Callable, Optional, Union
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -129,7 +129,15 @@ def run_os_command(command: str):
     :param command: 要执行的命令
     :return: 命令输出
     """
-    os.system(command)
+    result = subprocess.run(
+        command,
+        shell=True,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"命令执行失败: {result.stderr.strip()}")
+    print(result.stdout.strip())
     return f"执行命令: {command} 完成"
 
 
@@ -281,7 +289,7 @@ def get_task_info(task_name: str = None) -> Union[Dict[str, Any], List[Dict[str,
         for param_name, param in sig.parameters.items():
             param_info = {
                 "name": param_name,
-                "type": str(param.annotation) if param.annotation != inspect.Parameter.empty else "未知",
+                "type": str(param.annotation.__name__) if param.annotation != inspect.Parameter.empty else "未知",
                 "default": str(param.default) if param.default != inspect.Parameter.empty else None,
                 "required": param.default == inspect.Parameter.empty
             }

@@ -18,6 +18,7 @@ class CronTrigger(BaseModel):
     hour: Optional[int] = 0  # 0-23
     minute: Optional[int] = 0  # 0-59
     second: Optional[int] = 0  # 0-59
+    week: Optional[int] = 0 # 1-53
 
 
 class IntervalTrigger(BaseModel):
@@ -57,6 +58,7 @@ class AvailableTask(BaseModel):
     name: str
     description: str
     parameters: Dict[str, Any]
+    category: str
 
 
 # 日志查询接口
