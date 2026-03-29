@@ -27,7 +27,6 @@ def _get_auth_config():
         try:
             enabled = get_config_bool(db, "api_key_enabled", True)
             key = get_config(db, "api_key", API_KEY)
-            print("key:", key,"API_KEY:", API_KEY)
             return enabled, key
         finally:
             db.close()
