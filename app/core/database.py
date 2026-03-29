@@ -80,7 +80,7 @@ def get_db_status():
 
 def get_config(db: Session, key: str, default: str = None) -> str:
     config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
-    if config:
+    if config and config.value:
         return config.value
     return default or DEFAULT_CONFIG.get(key, {}).get("value", "")
 

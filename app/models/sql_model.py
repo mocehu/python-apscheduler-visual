@@ -38,4 +38,6 @@ DEFAULT_CONFIG = {
     "log_auto_cleanup": {"value": "true", "description": "是否自动清理日志"},
     "log_cleanup_hour": {"value": "3", "description": "自动清理执行时间（小时，0-23）"},
     "log_max_count": {"value": "100000", "description": "最大日志数量"},
+    "api_key_enabled": {"value": "true", "description": "是否启用 API Key 认证"},
+    "api_key": {"value": "", "description": "API 密钥（为空时使用环境变量 API_KEY）"},
 }

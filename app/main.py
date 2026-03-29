@@ -8,6 +8,7 @@ from app.services.scheduler import start_scheduler, stop_scheduler
 from app.core.database import init_db
 from uvicorn.config import LOGGING_CONFIG
 from app.core.conf import HOST, PORT
+from app.middleware.auth import APIKeyMiddleware
 
 
 @asynccontextmanager
@@ -22,6 +23,8 @@ LOGGING_CONFIG["formatters"]["default"]["fmt"] = "%(asctime)s | %(levelprefix)s|
 
 app = FastAPI(lifespan=lifespan)
 
+app.add_middleware(APIKeyMiddleware)
+
 origins = ["*"]
 
 app.add_middleware(
@@ -33,6 +36,12 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+
+@app.get("/health", summary="健康检查")
+async def health_check():
+    return {"status": "ok"}
+
 
 if __name__ == "__main__":
     import uvicorn

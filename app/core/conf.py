@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 GITHUB_REPO = os.getenv("GITHUB_REPO", "mocehu/python-apscheduler-visual")
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}"
 
@@ -34,3 +34,6 @@ else:
 
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
+
+API_KEY_ENABLED = os.getenv("API_KEY_ENABLED", "true").lower() == "true"
+API_KEY = os.getenv("API_KEY", "123456")

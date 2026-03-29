@@ -1,19 +1,19 @@
-import inspect
 import traceback
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Callable
 from functools import wraps
+from typing import Optional, Dict, Any, Callable
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db, cleanup_old_logs, get_log_stats, clear_all_logs
 from app.core.database import get_all_config, get_config, set_config, update_config_batch
-from app.models.schemas import ResponseModel, AvailableTask, JobCreate, CronTrigger, IntervalTrigger, DateTrigger, TYPE_MAP, JobLogResponse, JobLogPage
-from app.services.scheduler import add_job, remove_job, update_job, get_all_jobs, pause_job, resume_job, run_job, scheduler
-from app.services.scheduler import update_auto_cleanup_schedule
+from app.core.database import get_db, cleanup_old_logs, get_log_stats, clear_all_logs
+from app.models.schemas import ResponseModel, AvailableTask, JobCreate, CronTrigger, IntervalTrigger, DateTrigger, \
+    JobLogResponse, JobLogPage
 from app.models.sql_model import JobLog, DEFAULT_CONFIG
-from app.services.tasks import get_tasks, get_task_info, get_task_categories, get_task
+from app.services.scheduler import add_job, remove_job, update_job, get_all_jobs, get_job_by_id, pause_job, resume_job, scheduler
+from app.services.scheduler import update_auto_cleanup_schedule
+from app.services.tasks import get_task_info, get_task_categories, get_task
 
 router = APIRouter()
 
@@ -34,11 +34,11 @@ def api_error_handler(func: Callable) -> Callable:
 def run_job_now(job_id: str) -> ResponseModel:
     job = scheduler.get_job(job_id=job_id)
     if not job:
-        return ResponseModel(code=404, msg=f"任务 {job_id} 不存在")
+        return ResponseModel(code=404, msg=f"计划任务 {job_id} 不存在")
     
     job = scheduler.modify_job(job_id=job_id, next_run_time=datetime.now())
     
-    return ResponseModel(data=job.id, msg=f"任务 {job_id} 已安排立即执行")
+    return ResponseModel(data=job.id, msg=f"计划任务 {job_id} 已安排立即执行")
 
 
 @router.get("/available-tasks/", summary="可用任务函数列表")
@@ -67,7 +67,7 @@ def list_available_tasks(category: Optional[str] = None) -> ResponseModel:
             "tasks": available_tasks,
             "categories": categories
         }, 
-        msg="获取可用任务列表成功"
+        msg="获取可用任务函数列表成功"
     )
 
 
@@ -85,7 +85,7 @@ def _validate_trigger(job: JobCreate) -> Dict[str, Any]:
     return {k: v for k, v in model.dict().items() if v is not None}
 
 
-@router.post("/add-job/", summary="新建任务")
+@router.post("/add-job/", summary="新建计划任务")
 @api_error_handler
 def create_job(job: JobCreate) -> ResponseModel:
     task_func = get_task(job.func)
@@ -103,15 +103,15 @@ def create_job(job: JobCreate) -> ResponseModel:
         name=job.name,
         **trigger_args
     )
-    return ResponseModel(data={"job_id": job.job_id, "name": job.name}, msg="任务已添加")
+    return ResponseModel(data={"job_id": job.job_id, "name": job.name}, msg="计划任务已添加")
 
 
-@router.post("/update-job/", summary="修改任务")
+@router.post("/update-job/", summary="修改计划任务")
 @api_error_handler
 def modify_job(job: JobCreate) -> ResponseModel:
     job_obj = scheduler.get_job(job_id=job.job_id)
     if not job_obj:
-        return ResponseModel(code=404, msg=f"任务 {job.job_id} 不存在")
+        return ResponseModel(code=404, msg=f"计划任务 {job.job_id} 不存在")
     
     task_func = get_task(job.func)
     if not task_func:
@@ -131,44 +131,54 @@ def modify_job(job: JobCreate) -> ResponseModel:
     return ResponseModel(data={"job_id": job.job_id, "name": job.name}, msg="任务已更新")
 
 
-@router.get("/pause-job/{job_id}", summary="暂停任务")
+@router.get("/pause-job/{job_id}", summary="暂停计划任务")
 @api_error_handler
 def pause_job_endpoint(job_id: str) -> ResponseModel:
     job = scheduler.get_job(job_id=job_id)
     if not job:
-        return ResponseModel(code=404, msg=f"任务 {job_id} 不存在")
+        return ResponseModel(code=404, msg=f"计划任务 {job_id} 不存在")
     
     pause_job(job_id)
-    return ResponseModel(data=job_id, msg=f"任务 {job_id} 已暂停")
+    return ResponseModel(data=job_id, msg=f"计划任务 {job_id} 已暂停")
 
 
-@router.get("/resume-job/{job_id}", summary="恢复（被暂停的）任务")
+@router.get("/resume-job/{job_id}", summary="恢复（被暂停的）计划任务")
 @api_error_handler
 def resume_job_endpoint(job_id: str) -> ResponseModel:
     job = scheduler.get_job(job_id=job_id)
     if not job:
-        return ResponseModel(code=404, msg=f"任务 {job_id} 不存在")
+        return ResponseModel(code=404, msg=f"计划任务 {job_id} 不存在")
     
     resume_job(job_id)
-    return ResponseModel(data=job_id, msg=f"任务 {job_id} 已恢复")
+    return ResponseModel(data=job_id, msg=f"计划任务 {job_id} 已恢复")
 
 
-@router.get("/remove-job/{job_id}", summary="删除任务")
+@router.get("/remove-job/{job_id}", summary="删除计划任务")
 @api_error_handler
 def delete_job(job_id: str) -> ResponseModel:
     job = scheduler.get_job(job_id=job_id)
     if not job:
-        return ResponseModel(code=404, msg=f"任务 {job_id} 不存在")
+        return ResponseModel(code=404, msg=f"计划任务 {job_id} 不存在")
     
     remove_job(job_id)
-    return ResponseModel(data=job_id, msg="任务已移除")
+    return ResponseModel(data=job_id, msg="计划任务已移除")
 
 
-@router.get("/jobs/", summary="任务列表")
+@router.get("/jobs/", summary="计划任务列表")
 @api_error_handler
 def list_jobs() -> ResponseModel:
     jobs = get_all_jobs()
-    return ResponseModel(data=jobs, msg="获取任务列表成功")
+    return ResponseModel(data=jobs, msg="获取计划任务列表成功")
+
+
+@router.get("/job/{job_id}", summary="获取单个任务详情")
+@api_error_handler
+def get_job_detail(job_id: str) -> ResponseModel:
+    """根据任务ID获取任务详情"""
+    job = get_job_by_id(job_id)
+    if not job:
+        return ResponseModel(code=404, msg=f"任务 {job_id} 不存在")
+    return ResponseModel(data=job, msg="获取任务详情成功")
 
 
 @router.get("/logs/", summary="任务日志")
@@ -204,21 +214,21 @@ def get_logs(
     return ResponseModel(data=log_page, msg="获取日志成功")
 
 
-@router.get("/task-categories/", summary="获取任务分类")
+@router.get("/task-categories/", summary="获取任务函数分类")
 @api_error_handler
 def list_task_categories() -> ResponseModel:
     categories = get_task_categories()
-    return ResponseModel(data=categories, msg="获取任务分类成功")
+    return ResponseModel(data=categories, msg="获取任务函数分类成功")
 
 
-@router.get("/task-info/{task_name}", summary="获取任务详情")
+@router.get("/task-info/{task_name}", summary="获取任务函数详情")
 @api_error_handler
 def get_task_details(task_name: str) -> ResponseModel:
     task_info = get_task_info(task_name)
     if not task_info:
-        return ResponseModel(code=404, msg=f"任务 {task_name} 不存在")
+        return ResponseModel(code=404, msg=f"任务函数 {task_name} 不存在")
     
-    return ResponseModel(data=task_info, msg="获取任务详情成功")
+    return ResponseModel(data=task_info, msg="获取任务函数详情成功")
 
 
 @router.get("/log-stats/", summary="日志统计")

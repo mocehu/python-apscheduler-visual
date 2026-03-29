@@ -289,3 +289,25 @@ def get_all_jobs():
             "status": "已暂停" if job.next_run_time is None else "工作中"
         })
     return job_info
+
+
+def get_job_by_id(job_id: str) -> Optional[Dict[str, Any]]:
+    """获取单个任务详情"""
+    try:
+        job = scheduler.get_job(job_id)
+    except LookupError:
+        return None
+    
+    if not job:
+        return None
+    
+    return {
+        "id": job.id,
+        "name": job.name,
+        "func": job.func.__name__,
+        "next_run_time": str(job.next_run_time) if job.next_run_time else None,
+        "trigger": str(job.trigger),
+        "args": list(job.args) if job.args else [],
+        "kwargs": dict(job.kwargs) if job.kwargs else {},
+        "status": "已暂停" if job.next_run_time is None else "工作中"
+    }

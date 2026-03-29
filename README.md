@@ -103,8 +103,56 @@ docker run -d -p 8000:8000 scheduler-app
 | `HOST` | 服务监听地址 | 0.0.0.0 |
 | `PORT` | 服务监听端口 | 8000 |
 | `GITHUB_REPO` | GitHub 仓库地址 (格式: owner/repo) | - |
+| `API_KEY_ENABLED` | 是否启用 API Key 认证 | true |
+| `API_KEY` | API 密钥 | - |
 
 > 日志清理相关配置现已支持前端动态配置，通过 API 接口管理，详见接口文档
+
+## API 安全
+
+### API Key 认证
+
+系统默认启用 API Key 认证，所有 API 请求需携带正确的 `X-API-Key` 请求头。
+
+**配置：**
+
+```env
+# .env
+API_KEY_ENABLED=true
+API_KEY=your-secret-key-here
+```
+
+**使用方式：**
+
+```bash
+# 请求示例
+curl -H "X-API-Key: your-secret-key-here" http://localhost:8000/jobs/
+```
+
+```javascript
+// 前端配置
+fetch('/jobs/', {
+    headers: { 'X-API-Key': 'your-secret-key-here' }
+});
+
+// 或全局配置
+axios.defaults.headers.common['X-API-Key'] = 'your-secret-key-here';
+```
+
+**公开接口（无需认证）：**
+
+| 接口 | 说明 |
+|------|------|
+| `/docs` | Swagger 文档 |
+| `/redoc` | ReDoc 文档 |
+| `/health` | 健康检查 |
+
+**生成安全密钥：**
+
+```bash
+# 使用 openssl 生成随机密钥
+openssl rand -hex 32
+```
 
 ## 数据库管理
 

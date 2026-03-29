@@ -11,8 +11,9 @@ import time
 import importlib
 import pkgutil
 import logging
+import threading
 from typing import Dict, List, Any, Callable, Tuple, Optional, Union
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +21,63 @@ logger = logging.getLogger(__name__)
 
 _task_registry = {}
 _task_categories = {}
+
+
+class OutputCapture:
+    """捕获所有输出，包括 stdout、stderr 和 subprocess 输出"""
+    
+    def __init__(self):
+        self.stdout_capture = io.StringIO()
+        self.stderr_capture = io.StringIO()
+        self._original_stdout = None
+        self._original_stderr = None
+        self._original_stdout_fd = None
+        self._original_stderr_fd = None
+        self._capture_file = None
+    
+    def __enter__(self):
+        self._original_stdout = sys.stdout
+        self._original_stderr = sys.stderr
+        sys.stdout = self.stdout_capture
+        sys.stderr = self.stderr_capture
+        
+        if hasattr(sys.stdout, 'fileno') and hasattr(os, 'dup'):
+            try:
+                self._original_stdout_fd = os.dup(1)
+                self._original_stderr_fd = os.dup(2)
+                self._capture_file = io.StringIO()
+                capture_fd = self._capture_file.fileno() if hasattr(self._capture_file, 'fileno') else None
+            except (OSError, AttributeError):
+                pass
+        
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stdout = self._original_stdout
+        sys.stderr = self._original_stderr
+        
+        if self._original_stdout_fd is not None:
+            try:
+                os.dup2(self._original_stdout_fd, 1)
+                os.close(self._original_stdout_fd)
+            except OSError:
+                pass
+        
+        if self._original_stderr_fd is not None:
+            try:
+                os.dup2(self._original_stderr_fd, 2)
+                os.close(self._original_stderr_fd)
+            except OSError:
+                pass
+        
+        return False
+    
+    def get_output(self) -> str:
+        return self.stdout_capture.getvalue()
+    
+    def get_error(self) -> str:
+        return self.stderr_capture.getvalue()
+
 
 def task(category: str = "default", name: str = None, description: str = None):
     def decorator(func):
@@ -31,9 +89,8 @@ def task(category: str = "default", name: str = None, description: str = None):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             start_time = time.time()
-            f = io.StringIO()
             
-            with redirect_stdout(f):
+            with OutputCapture() as capture:
                 try:
                     result = func(*args, **kwargs)
                     status = True
@@ -44,7 +101,17 @@ def task(category: str = "default", name: str = None, description: str = None):
                     error = str(e)
                     logger.error(f"任务 {task_name} 执行出错: {e}")
             
-            output = f.getvalue()
+            output = capture.get_output()
+            
+            if isinstance(result, dict):
+                if result.get("output"):
+                    output = result["output"]
+                if result.get("error"):
+                    error = result["error"]
+                if "status" in result:
+                    status = result["status"]
+                result = result.get("result")
+            
             end_time = time.time()
             elapsed_time = (end_time - start_time) * 1000
             
@@ -76,8 +143,24 @@ def task(category: str = "default", name: str = None, description: str = None):
 
 @task(category="system", description="在操作系统终端执行命令")
 def run_os_command(command: str):
-    os.system(command)
-    return f"执行命令: {command} 完成"
+    import subprocess
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        output = result.stdout
+        error = result.stderr
+        if result.returncode != 0 and error:
+            return {"output": output, "error": error, "status": False}
+        return {"output": output, "error": error, "status": True}
+    except subprocess.TimeoutExpired:
+        return {"output": "", "error": "命令执行超时", "status": False}
+    except Exception as e:
+        return {"output": "", "error": str(e), "status": False}
 
 
 @task(category="system", description="执行Python代码并返回结果")
