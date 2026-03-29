@@ -3,28 +3,26 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api import router
-from scheduler import start_scheduler, stop_scheduler
+from app.api.routes import router
+from app.services.scheduler import start_scheduler, stop_scheduler
+from app.core.database import init_db
 from uvicorn.config import LOGGING_CONFIG
+from app.core.conf import HOST, PORT
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 此代码将在启动期间运行
+    init_db()
     start_scheduler()
     yield
-    # 此代码将在关机期间运行
     stop_scheduler()
 
 
-# 日志格式设置
 LOGGING_CONFIG["formatters"]["default"]["fmt"] = "%(asctime)s | %(levelprefix)s| %(funcName)s:%(lineno)d - %(message)s"
 
 app = FastAPI(lifespan=lifespan)
 
-origins = [
-    "*"
-]
+origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,5 +36,4 @@ app.include_router(router)
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=HOST, port=PORT)
