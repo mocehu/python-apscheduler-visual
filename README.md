@@ -124,18 +124,9 @@ API_KEY=your-secret-key-here
 
 **使用方式：**
 
-```bash
-# 请求示例
-curl -H "X-API-Key: your-secret-key-here" http://localhost:8000/jobs/
-```
 
 ```javascript
 // 前端配置
-fetch('/jobs/', {
-    headers: { 'X-API-Key': 'your-secret-key-here' }
-});
-
-// 或全局配置
 axios.defaults.headers.common['X-API-Key'] = 'your-secret-key-here';
 ```
 
@@ -147,10 +138,20 @@ axios.defaults.headers.common['X-API-Key'] = 'your-secret-key-here';
 | `/redoc` | ReDoc 文档 |
 | `/health` | 健康检查 |
 
+**动态配置：**
+
+支持通过系统配置接口动态控制：
+
+| 配置键 | 说明 | 默认值 |
+|--------|------|--------|
+| `api_key_enabled` | 是否启用 API Key 认证 | `true` |
+| `api_key` | API 密钥（为空时使用环境变量） | 空 |
+
+> 环境变量 `API_KEY_ENABLED=false` 时，动态配置无效。
+
 **生成安全密钥：**
 
 ```bash
-# 使用 openssl 生成随机密钥
 openssl rand -hex 32
 ```
 
