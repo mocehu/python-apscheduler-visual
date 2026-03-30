@@ -1,10 +1,20 @@
 # 可视化定时任务管理系统
 
-基于 Python FastAPI + APScheduler 构建的可视化定时任务管理平台，支持任务的创建、编辑、暂停、删除和实时状态监控。
+[![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![APScheduler](https://img.shields.io/badge/APScheduler-3.11+-blue)](https://apscheduler.readthedocs.io/)
+[![Docker](https://img.shields.io/badge/Docker-Support-2496ED?logo=docker&logoColor=white)](./docker-compose.yml)
+[![License](https://img.shields.io/badge/License-MIT-green)](./LICENSE)
 
-此仓库仅包含后端代码，前端代码移步至 [前端代码仓库](https://github.com/mocehu/aps_dev_frontend)
+> 基于 Python FastAPI + APScheduler 构建的可视化定时任务管理平台
 
-![image-20260329180332078](assets/image-20260329180332078.png)![image-20260329180405377](assets/image-20260329180405377.png)![image-20260329180417815](assets/image-20260329180417815.png)![image-20260329180430569](assets/image-20260329180430569.png)![image-20260329180441891](assets/image-20260329180441891.png)
+此仓库仅包含后端代码，更多项目截图及前端代码移步至 [前端代码仓库](https://github.com/mocehu/aps_dev_frontend)
+
+![image-20260330223400375](assets/image-20260330223400375.png)
+
+![image-20260330220902364](assets/image-20260330221128730.png)
+
+![image-20260329180332078](assets/image-20260329180332078.png)![image-20260329180405377](assets/image-20260329180405377.png)![image-20260329180417815](assets/image-20260329180417815.png)![image-20260329180430569](assets/image-20260329180430569.png)
 
 ## 功能特性
 
@@ -15,6 +25,9 @@
 - 动态解析任务函数和参数
 - 任务状态实时展示
 - 执行日志追踪与查询
+- AI 远程指令（支持 OpenAI 兼容接口）
+- 多数据库支持（PostgreSQL / SQLite）
+- Docker / docker-compose 一键部署
 
 ## 技术栈
 
@@ -105,6 +118,15 @@ docker run -d -p 8000:8000 scheduler-app
 | `GITHUB_REPO` | GitHub 仓库地址 (格式: owner/repo) | - |
 | `API_KEY_ENABLED` | 是否启用 API Key 认证 | true |
 | `API_KEY` | API 密钥 | - |
+| `AI_ENABLED` | 是否启用 AI 功能 | true |
+| `AI_PROVIDER` | AI 提供商 | openai_compatible |
+| `AI_BASE_URL` | AI 接口地址 | https://api.openai.com/v1 |
+| `AI_API_KEY` | AI API 密钥 | - |
+| `AI_MODEL` | 默认 AI 模型 | gpt-4o-mini |
+| `AI_ALLOW_EXECUTE` | 是否允许 AI 直接执行变更 | false |
+| `AI_STREAM_ENABLED` | 是否启用 AI 流式输出 | true |
+| `AI_AGENT_API_KEY` | 外部 AI Agent 专用密钥 | - |
+| `AI_MAX_HISTORY_MESSAGES` | AI 上下文最大历史消息数 | 12 |
 
 > 日志清理相关配置现已支持前端动态配置，通过 API 接口管理，详见接口文档
 
@@ -120,14 +142,6 @@ docker run -d -p 8000:8000 scheduler-app
 # .env
 API_KEY_ENABLED=true
 API_KEY=your-secret-key-here
-```
-
-**使用方式：**
-
-
-```javascript
-// 前端配置
-axios.defaults.headers.common['X-API-Key'] = 'your-secret-key-here';
 ```
 
 **公开接口（无需认证）：**
@@ -188,6 +202,59 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
+## AI 远程指令
+
+系统支持通过 OpenAI 兼容接口接入 AI，实现远程自然语言操作计划任务。
+
+### 功能说明
+
+- 支持其他电脑、手机、脚本或外部 agent 直接调用 AI 接口
+- 支持多轮会话，历史记录存储到数据库
+- 支持 function calling，将任务系统能力暴露为结构化工具
+- 默认使用草案模式，生成任务增删改建议而不是直接执行
+
+### AI 配置
+
+建议同时配置以下环境变量或系统配置项：
+
+```env
+AI_ENABLED=true
+AI_PROVIDER=openai_compatible
+AI_BASE_URL=https://api.openai.com/v1
+AI_API_KEY=your-llm-api-key
+AI_MODEL=gpt-4o-mini
+AI_ALLOW_EXECUTE=false
+AI_STREAM_ENABLED=true
+AI_MAX_HISTORY_MESSAGES=12
+```
+
+### AI 工具能力
+
+**查询类（直接执行）：**
+- 查询全部任务、单个任务详情、搜索任务
+- 查询可用任务函数和分类
+- 查询任务执行日志和统计
+- 查询系统配置、获取当前时间
+
+**草案类（生成草案，需用户确认后执行）：**
+- 生成创建/修改/删除/暂停/恢复任务草案
+- 生成配置修改草案
+
+**执行类（需 ai_allow_execute=true 才可用）：**
+- 直接创建/修改/删除/暂停/恢复任务
+- 直接更新配置
+
+### 安全说明
+
+- AI 接口支持两种认证方式：
+  - 普通 API Key：可访问所有接口
+  - Agent API Key：仅可访问 `/ai/*` 接口，适合外部 agent 调用
+- 配置 `AI_AGENT_API_KEY` 后，外部 agent 可使用该密钥调用 AI 接口
+- 默认不允许 AI 直接执行任务变更
+- 高风险任务函数（如系统命令执行）不建议暴露给 AI
+- 所有 AI 会话、消息、工具调用会记录到数据库
+
+> API 详细说明见 [API 文档](docs/API.md)
 
 ## 日志管理
 
@@ -197,22 +264,7 @@ alembic downgrade -1
 - 删除超过保留天数的日志
 - 当日志总数超过最大限制时删除最旧的日志
 
-> 清理策略可通过 [系统配置](#系统配置) 动态调整，配置变更后立即生效。
-
-### 手动管理
-
-通过 API 接口手动管理日志：
-
-```bash
-# 查看日志统计
-curl http://localhost:8000/log-stats/
-
-# 清理过期日志
-curl -X POST http://localhost:8000/cleanup-logs/
-
-# 清除所有日志（危险操作）
-curl -X POST http://localhost:8000/clear-logs/
-```
+> 清理策略可通过 [系统配置](#配置说明) 动态调整，配置变更后立即生效。
 
 ### 内置任务
 
@@ -296,4 +348,4 @@ python-visual-task-scheduler/
 
 ## 许可证
 
-MIT License
+[MIT License](./LICENSE)

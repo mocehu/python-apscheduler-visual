@@ -37,3 +37,13 @@ PORT = int(os.getenv("PORT", "8000"))
 
 API_KEY_ENABLED = os.getenv("API_KEY_ENABLED", "true").lower() == "true"
 API_KEY = os.getenv("API_KEY", "123456")
+
+AI_ENABLED = os.getenv("AI_ENABLED", "true").lower() == "true"
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openai_compatible")
+AI_BASE_URL = os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
+AI_API_KEY = os.getenv("AI_API_KEY", "")
+AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
+AI_ALLOW_EXECUTE = os.getenv("AI_ALLOW_EXECUTE", "false").lower() == "true"
+AI_STREAM_ENABLED = os.getenv("AI_STREAM_ENABLED", "true").lower() == "true"
+AI_MAX_HISTORY_MESSAGES = int(os.getenv("AI_MAX_HISTORY_MESSAGES", "12"))
+AI_AGENT_API_KEY = os.getenv("AI_AGENT_API_KEY", "")

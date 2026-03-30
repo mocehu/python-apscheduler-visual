@@ -86,6 +86,75 @@ class JobLogPage(BaseModel):
     logs: List[JobLogResponse]
 
 
+class AIChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+    model: Optional[str] = None
+    mode: str = 'draft'
+
+
+class AIConfigUpdateRequest(BaseModel):
+    ai_enabled: Optional[str] = None
+    ai_provider: Optional[str] = None
+    ai_base_url: Optional[str] = None
+    ai_api_key: Optional[str] = None
+    ai_model: Optional[str] = None
+    ai_allow_execute: Optional[str] = None
+    ai_stream_enabled: Optional[str] = None
+    ai_agent_api_key: Optional[str] = None
+    ai_max_history_messages: Optional[str] = None
+
+
+class AISessionResponse(BaseModel):
+    id: str
+    title: Optional[str] = None
+    provider: str
+    model: str
+    mode: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AIMessageResponse(BaseModel):
+    id: int
+    session_id: str
+    role: str
+    content: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AIToolCallResponse(BaseModel):
+    id: int
+    session_id: str
+    message_id: Optional[int] = None
+    tool_name: str
+    tool_args: Optional[str] = None
+    tool_result: Optional[str] = None
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AISessionDetailResponse(BaseModel):
+    session: AISessionResponse
+    messages: List[AIMessageResponse]
+    tool_calls: List[AIToolCallResponse]
+
+
+class AIChatResponse(BaseModel):
+    session_id: str
+    reply: str
+    tool_calls: List[Dict[str, Any]]
+    draft: Optional[Dict[str, Any]] = None
+    model: str
+    provider: str
+
+
 TYPE_MAP = {
     str: 'string',
     int: 'int',

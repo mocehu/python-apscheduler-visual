@@ -1,18 +1,51 @@
+import json
 import traceback
 from datetime import datetime
 from functools import wraps
 from typing import Optional, Dict, Any, Callable
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.database import get_all_config, get_config, set_config, update_config_batch
-from app.core.database import get_db, cleanup_old_logs, get_log_stats, clear_all_logs
-from app.models.schemas import ResponseModel, AvailableTask, JobCreate, CronTrigger, IntervalTrigger, DateTrigger, \
-    JobLogResponse, JobLogPage
+from app.core.database import (
+    delete_ai_session,
+    get_ai_session,
+    get_all_config,
+    get_config,
+    get_configs_by_prefix,
+    get_db,
+    list_ai_messages,
+    list_ai_sessions,
+    list_ai_tool_calls,
+    set_config,
+    update_config_batch,
+    cleanup_old_logs,
+    get_log_stats,
+    clear_all_logs,
+)
+from app.models.schemas import (
+    AIChatRequest,
+    AIChatResponse,
+    AIConfigUpdateRequest,
+    AIMessageResponse,
+    AISessionDetailResponse,
+    AISessionResponse,
+    AIToolCallResponse,
+    AvailableTask,
+    CronTrigger,
+    DateTrigger,
+    IntervalTrigger,
+    JobCreate,
+    JobLogPage,
+    JobLogResponse,
+    ResponseModel,
+)
 from app.models.sql_model import JobLog, DEFAULT_CONFIG
 from app.services.scheduler import add_job, remove_job, update_job, get_all_jobs, get_job_by_id, pause_job, resume_job, scheduler
 from app.services.scheduler import update_auto_cleanup_schedule
+from app.services.ai.chat_service import chat_once, chat_stream
+from app.services.ai.function_registry import get_tool_schemas
 from app.services.tasks import get_task_info, get_task_categories, get_task
 
 router = APIRouter()
@@ -349,3 +382,123 @@ def get_release_notes(
             return ResponseModel(data=release, msg="获取更新日志成功")
         else:
             return ResponseModel(code=404, msg="无法获取更新日志，请检查后台配置或网络")
+
+
+@router.post("/ai/chat", summary="AI 对话")
+@api_error_handler
+def ai_chat(request: AIChatRequest, db: Session = Depends(get_db)) -> ResponseModel:
+    if not get_config(db, "ai_enabled", "true").lower() == 'true':
+        return ResponseModel(code=403, msg="AI 功能未启用")
+
+    result = chat_once(
+        db,
+        message=request.message,
+        session_id=request.session_id or None,
+        model=request.model or None,
+        mode=request.mode,
+    )
+    return ResponseModel(data=AIChatResponse(**result), msg="AI 处理完成")
+
+
+@router.post("/ai/chat/stream", summary="AI 流式对话")
+@api_error_handler
+def ai_chat_stream(request: AIChatRequest):
+    def event_stream():
+        from app.core.database import _session_factory
+        db = _session_factory()
+        try:
+            if not get_config(db, "ai_enabled", "true").lower() == 'true':
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI 功能未启用'}, ensure_ascii=False)}\n\n"
+                return
+
+            for chunk in chat_stream(
+                db,
+                message=request.message,
+                session_id=request.session_id or None,
+                model=request.model or None,
+                mode=request.mode,
+            ):
+                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            db.close()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@router.get("/ai/sessions", summary="AI 会话列表")
+@api_error_handler
+def get_ai_sessions_endpoint(db: Session = Depends(get_db)) -> ResponseModel:
+    sessions = list_ai_sessions(db)
+    data = [AISessionResponse.model_validate(item) for item in sessions]
+    return ResponseModel(data=data, msg="获取 AI 会话成功")
+
+
+@router.get("/ai/sessions/{session_id}", summary="AI 会话详情")
+@api_error_handler
+def get_ai_session_endpoint(session_id: str, db: Session = Depends(get_db)) -> ResponseModel:
+    session = get_ai_session(db, session_id)
+    if not session:
+        return ResponseModel(code=404, msg=f"AI 会话 {session_id} 不存在")
+
+    messages = [AIMessageResponse.model_validate(item) for item in list_ai_messages(db, session_id)]
+    tool_calls = [AIToolCallResponse.model_validate(item) for item in list_ai_tool_calls(db, session_id)]
+    data = AISessionDetailResponse(
+        session=AISessionResponse.model_validate(session),
+        messages=messages,
+        tool_calls=tool_calls,
+    )
+    return ResponseModel(data=data, msg="获取 AI 会话详情成功")
+
+
+@router.delete("/ai/sessions/{session_id}", summary="删除 AI 会话")
+@api_error_handler
+def delete_ai_session_endpoint(session_id: str, db: Session = Depends(get_db)) -> ResponseModel:
+    deleted = delete_ai_session(db, session_id)
+    if not deleted:
+        return ResponseModel(code=404, msg=f"AI 会话 {session_id} 不存在")
+    return ResponseModel(data={"session_id": session_id}, msg="AI 会话已删除")
+
+
+@router.get("/ai/models", summary="获取 AI 模型配置")
+@api_error_handler
+def get_ai_models_endpoint(db: Session = Depends(get_db)) -> ResponseModel:
+    models = {
+        "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+        "deepseek": ["deepseek-chat", "deepseek-coder"],
+        "custom": [],
+    }
+    current = {
+        "provider": get_config(db, "ai_provider", "openai_compatible"),
+        "model": get_config(db, "ai_model", "gpt-4o-mini"),
+    }
+    return ResponseModel(data={"models": models, "current": current}, msg="获取 AI 模型成功")
+
+
+@router.get("/ai/tools", summary="获取 AI 工具列表")
+@api_error_handler
+def get_ai_tools_endpoint() -> ResponseModel:
+    return ResponseModel(data={"tools": get_tool_schemas()}, msg="获取 AI 工具成功")
+
+
+@router.get("/ai/config", summary="获取 AI 配置")
+@api_error_handler
+def get_ai_config_endpoint(db: Session = Depends(get_db)) -> ResponseModel:
+    return ResponseModel(data=get_configs_by_prefix(db, "ai_"), msg="获取 AI 配置成功")
+
+
+@router.put("/ai/config", summary="更新 AI 配置")
+@api_error_handler
+def update_ai_config_endpoint(request: AIConfigUpdateRequest, db: Session = Depends(get_db)) -> ResponseModel:
+    changes = {key: value for key, value in request.model_dump().items() if value is not None}
+    updated = update_config_batch(db, changes)
+    return ResponseModel(data=updated, msg=f"已更新 {len(updated)} 个 AI 配置项")

@@ -1,16 +1,29 @@
-import redis
+import json
 import logging
+import redis
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, event, inspect, func, delete
 from sqlalchemy.orm import sessionmaker, scoped_session, Session
 
 from app.core.conf import DATABASE_URL, DB_TYPE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB
-from app.models.sql_model import Base, JobLog, SystemConfig, DEFAULT_CONFIG
+from app.models.sql_model import (
+    AIMessage,
+    AISession,
+    AIToolCall,
+    Base,
+    DEFAULT_CONFIG,
+    JobLog,
+    SystemConfig,
+)
 
 logger = logging.getLogger(__name__)
 
 if DB_TYPE == "sqlite":
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        pool_pre_ping=True,
+    )
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
@@ -19,11 +32,20 @@ if DB_TYPE == "sqlite":
 else:
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
-SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+_session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = scoped_session(_session_factory)
 
 
 def get_db():
-    db = SessionLocal()
+    db = _session_factory()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def get_isolated_db():
+    db = _session_factory()
     try:
         yield db
     finally:
@@ -128,6 +150,11 @@ def get_all_config(db: Session) -> dict:
     return result
 
 
+def get_configs_by_prefix(db: Session, prefix: str) -> dict:
+    configs = get_all_config(db)
+    return {key: value for key, value in configs.items() if key.startswith(prefix)}
+
+
 def update_config_batch(db: Session, config_dict: dict) -> dict:
     updated = {}
     for key, value in config_dict.items():
@@ -139,6 +166,101 @@ def update_config_batch(db: Session, config_dict: dict) -> dict:
                 "updated_at": config.updated_at.isoformat() if config.updated_at else None
             }
     return updated
+
+
+def create_ai_session(
+    db: Session,
+    session_id: str,
+    title: str = None,
+    provider: str = 'openai_compatible',
+    model: str = 'gpt-4o-mini',
+    mode: str = 'draft',
+) -> AISession:
+    session = AISession(
+        id=session_id,
+        title=title,
+        provider=provider,
+        model=model,
+        mode=mode,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def get_ai_session(db: Session, session_id: str) -> AISession:
+    return db.query(AISession).filter(AISession.id == session_id).first()
+
+
+def list_ai_sessions(db: Session, limit: int = 50):
+    return db.query(AISession).order_by(AISession.updated_at.desc()).limit(limit).all()
+
+
+def delete_ai_session(db: Session, session_id: str) -> bool:
+    db.query(AIMessage).filter(AIMessage.session_id == session_id).delete()
+    db.query(AIToolCall).filter(AIToolCall.session_id == session_id).delete()
+    deleted = db.query(AISession).filter(AISession.id == session_id).delete()
+    db.commit()
+    return bool(deleted)
+
+
+def add_ai_message(db: Session, session_id: str, role: str, content: str) -> AIMessage:
+    message = AIMessage(session_id=session_id, role=role, content=content)
+    db.add(message)
+
+    session = get_ai_session(db, session_id)
+    if session:
+        if not session.title and role == 'user':
+            session.title = content[:60]
+        session.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(message)
+    return message
+
+
+def list_ai_messages(db: Session, session_id: str, limit: int = 100):
+    return (
+        db.query(AIMessage)
+        .filter(AIMessage.session_id == session_id)
+        .order_by(AIMessage.created_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+def add_ai_tool_call(
+    db: Session,
+    session_id: str,
+    tool_name: str,
+    tool_args: dict = None,
+    tool_result: dict = None,
+    status: str = 'success',
+    message_id: int = None,
+) -> AIToolCall:
+    tool_call = AIToolCall(
+        session_id=session_id,
+        message_id=message_id,
+        tool_name=tool_name,
+        tool_args=json.dumps(tool_args or {}, ensure_ascii=False),
+        tool_result=json.dumps(tool_result or {}, ensure_ascii=False),
+        status=status,
+    )
+    db.add(tool_call)
+    db.commit()
+    db.refresh(tool_call)
+    return tool_call
+
+
+def list_ai_tool_calls(db: Session, session_id: str, limit: int = 100):
+    return (
+        db.query(AIToolCall)
+        .filter(AIToolCall.session_id == session_id)
+        .order_by(AIToolCall.created_at.asc())
+        .limit(limit)
+        .all()
+    )
 
 
 def cleanup_old_logs(db: Session, retention_days: int = None, max_count: int = None) -> dict:

@@ -1,16 +1,18 @@
+import logging
 import time
+from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional
 
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_SUBMITTED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
-import logging
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.conf import DATABASE_URL
-from app.core.database import get_db, SessionLocal, get_config_bool, get_config_int
+from app.core.database import _session_factory, get_config_bool, get_config_int
 from app.models.sql_model import JobLog
 
 logging.basicConfig(level=logging.INFO)
@@ -33,7 +35,7 @@ scheduler = BackgroundScheduler(jobstores=jobstores, executors=executors, job_de
 
 def log_to_db(job_id, status, message, duration=None, output=None):
     try:
-        db = next(get_db())
+        db = _session_factory()
         new_log = JobLog(
             job_id=job_id,
             status=status,
@@ -45,6 +47,11 @@ def log_to_db(job_id, status, message, duration=None, output=None):
         db.commit()
     except Exception as e:
         logger.error(f"日志记录失败: {e}")
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 task_start_times = {}
@@ -126,7 +133,7 @@ def _cleanup_invalid_jobs():
 def setup_auto_cleanup():
     from app.services.tasks import get_task
     
-    db = SessionLocal()
+    db = _session_factory()
     try:
         auto_cleanup = get_config_bool(db, "log_auto_cleanup", True)
         cleanup_hour = get_config_int(db, "log_cleanup_hour", 3)
@@ -275,19 +282,36 @@ def get_all_jobs():
     except LookupError as e:
         logger.warning(f"加载任务时发现无效引用: {e}")
         jobs = []
+    except Exception as e:
+        logger.error(f"获取任务列表失败: {e}")
+        return []
     
     job_info = []
     for job in jobs:
-        job_info.append({
-            "id": job.id,
-            "name": job.name,
-            "func": job.func.__name__,
-            "next_run_time": str(job.next_run_time),
-            "trigger": str(job.trigger),
-            "args": job.args,
-            "kwargs": job.kwargs,
-            "status": "已暂停" if job.next_run_time is None else "工作中"
-        })
+        try:
+            next_run = getattr(job, 'next_run_time', None)
+            job_info.append({
+                "id": job.id,
+                "name": job.name,
+                "func": job.func.__name__ if hasattr(job.func, '__name__') else str(job.func),
+                "next_run_time": str(next_run) if next_run else None,
+                "trigger": str(job.trigger),
+                "args": list(job.args) if job.args else [],
+                "kwargs": dict(job.kwargs) if job.kwargs else {},
+                "status": "已暂停" if next_run is None else "工作中"
+            })
+        except Exception as e:
+            logger.warning(f"解析任务 {job.id} 信息失败: {e}")
+            job_info.append({
+                "id": job.id,
+                "name": getattr(job, 'name', None),
+                "func": "unknown",
+                "next_run_time": None,
+                "trigger": str(getattr(job, 'trigger', 'unknown')),
+                "args": [],
+                "kwargs": {},
+                "status": "异常"
+            })
     return job_info
 
 

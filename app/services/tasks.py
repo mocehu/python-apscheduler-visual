@@ -193,8 +193,8 @@ def run_python_command(command: str):
 
 @task(category="system", description="自动清理过期日志")
 def auto_cleanup_logs():
-    from app.core.database import SessionLocal, cleanup_old_logs
-    db = SessionLocal()
+    from app.core.database import _session_factory, cleanup_old_logs
+    db = _session_factory()
     try:
         result = cleanup_old_logs(db)
         print(f"日志清理完成: 按时间删除 {result['deleted_by_age']} 条, 按数量删除 {result['deleted_by_count']} 条")
@@ -205,8 +205,8 @@ def auto_cleanup_logs():
 
 @task(category="system", description="获取日志统计信息")
 def get_logs_statistics():
-    from app.core.database import SessionLocal, get_log_stats
-    db = SessionLocal()
+    from app.core.database import _session_factory, get_log_stats
+    db = _session_factory()
     try:
         stats = get_log_stats(db)
         print(f"日志总数: {stats['total_count']}")
