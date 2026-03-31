@@ -1,4 +1,9 @@
-# 可视化定时任务管理系统
+
+![favs_logo](assets/favs_logo.png)
+
+# FAVS (FastAPI APScheduler Visual System) 
+
+> 基于 Python FastAPI + APScheduler + AI 构建的智能可视化定时任务管理平台
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -6,26 +11,26 @@
 [![Docker](https://img.shields.io/badge/Docker-Support-2496ED?logo=docker&logoColor=white)](./docker-compose.yml)
 [![License](https://img.shields.io/badge/License-MIT-green)](./LICENSE)
 
-> 基于 Python FastAPI + APScheduler 构建的可视化定时任务管理平台
 
 此仓库仅包含后端代码，更多项目截图及前端代码移步至 [前端代码仓库](https://github.com/mocehu/aps_dev_frontend)
 
 ![image-20260330223400375](assets/image-20260330223400375.png)
-
 ![image-20260330220902364](assets/image-20260330221128730.png)
-
-![image-20260329180332078](assets/image-20260329180332078.png)![image-20260329180405377](assets/image-20260329180405377.png)![image-20260329180417815](assets/image-20260329180417815.png)![image-20260329180430569](assets/image-20260329180430569.png)
+![image-20260329180332078](assets/image-20260329180332078.png)
+![image-20260329180405377](assets/image-20260329180405377.png)
+![image-20260329180417815](assets/image-20260329180417815.png)
+![image-20260329180430569](assets/image-20260329180430569.png)
 
 ## 功能特性
 
-- 可视化界面操作，无需命令行
+- 可视化界面操作，无需命令行、黑窗口
 - 三种定时任务类型：cron、interval、date
 - 支持秒级定时任务
 - 任务搜索、暂停、编辑、删除
 - 动态解析任务函数和参数
 - 任务状态实时展示
 - 执行日志追踪与查询
-- AI 远程指令（支持 OpenAI 兼容接口）
+- AI - 自然语言操作（支持 OpenAI 兼容接口）
 - 多数据库支持（PostgreSQL / SQLite）
 - Docker / docker-compose 一键部署
 
@@ -54,8 +59,8 @@
 
 1. **克隆项目**
 ```bash
-git clone https://github.com/mocehu/python-apscheduler-visual.git
-cd python-apscheduler-visual
+git clone https://github.com/mocehu/fastapi-apscheduler-visual.git
+cd fastapi-apscheduler-visual
 ```
 
 2. **安装依赖**

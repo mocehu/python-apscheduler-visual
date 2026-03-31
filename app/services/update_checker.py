@@ -63,7 +63,7 @@ def fetch_github_release() -> Optional[Dict[str, Any]]:
     try:
         req = urllib.request.Request(url)
         req.add_header("Accept", "application/vnd.github.v3+json")
-        req.add_header("User-Agent", f"python-apscheduler-visual/{VERSION}")
+        req.add_header("User-Agent", f"fastapi-apscheduler-visual/{VERSION}")
         
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
@@ -107,7 +107,7 @@ def fetch_github_releases(limit: int = 10) -> List[Dict[str, Any]]:
     try:
         req = urllib.request.Request(url)
         req.add_header("Accept", "application/vnd.github.v3+json")
-        req.add_header("User-Agent", f"python-apscheduler-visual/{VERSION}")
+        req.add_header("User-Agent", f"fastapi-apscheduler-visual/{VERSION}")
         
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
