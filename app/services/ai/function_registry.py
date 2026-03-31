@@ -134,6 +134,96 @@ def _tool_get_config(key: str = None) -> Dict[str, Any]:
         db.close()
 
 
+def _tool_generate_code(
+    description: str,
+    func_name: str = None,
+    category: str = "custom",
+) -> Dict[str, Any]:
+    """
+    根据用户需求生成自定义任务代码
+    
+    Args:
+        description: 用户想要实现的功能描述
+        func_name: 函数名（可选，默认根据描述生成）
+        category: 分类，默认 custom
+    """
+    from app.services.custom_tasks import validate_task_code, check_code_security, DEFAULT_FORBIDDEN_MODULES, DEFAULT_FORBIDDEN_BUILTINS
+    
+    forbidden_modules = ",".join(DEFAULT_FORBIDDEN_MODULES)
+    forbidden_builtins = ",".join(DEFAULT_FORBIDDEN_BUILTINS)
+    
+    return {
+        "action": "generate_code",
+        "payload": {
+            "description": description,
+            "func_name": func_name,
+            "category": category,
+            "forbidden_modules": forbidden_modules,
+            "forbidden_builtins": forbidden_builtins,
+        },
+        "display": {
+            "title": "生成自定义任务代码",
+            "fields": [
+                {"label": "功能描述", "value": description},
+                {"label": "函数名", "value": func_name or "自动生成"},
+                {"label": "分类", "value": category},
+            ],
+            "warning": "生成代码后将经过安全检查，请在确认后保存",
+        },
+        "confirm_text": "保存代码",
+        "cancel_text": "取消",
+    }
+
+
+def _tool_review_code(code: str, func_name: str = None) -> Dict[str, Any]:
+    """
+    审查分析代码
+    
+    Args:
+        code: 要审查的 Python 代码
+        func_name: 函数名（可选）
+    """
+    from app.services.custom_tasks import check_code_security, validate_task_code
+    
+    security_result = check_code_security(code)
+    validation_result = validate_task_code(code, func_name or "temp_func") if func_name else {"valid": True, "params": None, "error": None}
+    
+    issues = []
+    if not security_result["safe"]:
+        for error in security_result["errors"]:
+            issues.append({"level": "error", "message": error})
+    for warning in security_result["warnings"]:
+        issues.append({"level": "warning", "message": warning})
+    
+    return {
+        "action": "review_code",
+        "payload": {
+            "security": {
+                "safe": security_result["safe"],
+                "errors": security_result["errors"],
+                "warnings": security_result["warnings"],
+            },
+            "validation": {
+                "valid": validation_result["valid"],
+                "params": validation_result["params"],
+                "error": validation_result["error"],
+            },
+            "issues": issues,
+        },
+        "display": {
+            "title": "代码审查结果",
+            "fields": [
+                {"label": "安全检查", "value": "通过" if security_result["safe"] else "未通过"},
+                {"label": "语法验证", "value": "通过" if validation_result["valid"] else "未通过"},
+                {"label": "问题数量", "value": f"{len(issues)} 个"},
+            ],
+            "issues": issues,
+        },
+        "confirm_text": "确认",
+        "cancel_text": "取消",
+    }
+
+
 def _tool_draft_create_job(
     func: str,
     trigger: str,
@@ -361,6 +451,8 @@ TOOL_HANDLERS = {
     "get_log_stats": _tool_get_log_stats,
     "get_config": _tool_get_config,
     "get_current_time": _tool_get_current_time,
+    "generate_code": _tool_generate_code,
+    "review_code": _tool_review_code,
     "draft_create_job": _tool_draft_create_job,
     "draft_update_job": _tool_draft_update_job,
     "draft_delete_job": _tool_draft_delete_job,
@@ -457,6 +549,37 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
                 "parameters": {
                     "type": "object",
                     "properties": {"key": {"type": "string", "description": "配置键名，不传则返回全部"}},
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "generate_code",
+                "description": "根据用户需求生成自定义任务代码。生成后需要用户确认才能保存。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string", "description": "用户想要实现的功能描述"},
+                        "func_name": {"type": "string", "description": "函数名（可选，默认根据描述生成）"},
+                        "category": {"type": "string", "description": "分类，默认 custom"},
+                    },
+                    "required": ["description"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "review_code",
+                "description": "审查分析代码的安全性、语法和逻辑问题",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string", "description": "要审查的 Python 代码"},
+                        "func_name": {"type": "string", "description": "函数名（可选，用于参数验证）"},
+                    },
+                    "required": ["code"],
                 },
             },
         },
@@ -664,6 +787,8 @@ def get_readonly_tools() -> List[str]:
         "get_log_stats",
         "get_config",
         "get_current_time",
+        "generate_code",
+        "review_code",
     ]
 
 

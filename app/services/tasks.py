@@ -271,7 +271,12 @@ def discover_task_modules(package_name: str = None, directory: str = None):
 
 
 def get_task(task_name: str) -> Optional[Callable]:
-    return _task_registry.get(task_name)
+    if task_name in _task_registry:
+        return _task_registry[task_name]
+    
+    # 尝试从数据库加载自定义任务
+    from app.services.custom_tasks import load_custom_task_from_db
+    return load_custom_task_from_db(task_name)
 
 
 def get_tasks(category: str = None) -> Dict[str, Callable]:
@@ -299,11 +304,14 @@ def get_task_info(task_name: str = None) -> Union[Dict[str, Any], List[Dict[str,
             }
             params[param_name] = param_info
         
+        is_custom = hasattr(func, 'code')
+        
         return {
             "name": name,
             "description": func.task_desc,
             "category": func.task_category,
-            "parameters": params
+            "parameters": params,
+            "is_custom": is_custom
         }
     
     if task_name:
@@ -326,3 +334,69 @@ def initialize_tasks(packages=None, directories=None):
     
     logger.info(f"任务系统初始化完成，共加载 {len(_task_registry)} 个任务")
     return _task_registry
+
+
+def reload_tasks(packages=None, directories=None, clear_existing=False):
+    """
+    重新加载任务模块
+    
+    Args:
+        packages: 要加载的包名列表
+        directories: 要扫描的目录列表
+        clear_existing: 是否清除现有任务注册表
+    
+    Returns:
+        dict: 包含加载结果的信息
+    """
+    if clear_existing:
+        cleared_count = len(_task_registry)
+        _task_registry.clear()
+        _task_categories.clear()
+        logger.info(f"已清除 {cleared_count} 个已注册任务")
+    
+    before_count = len(_task_registry)
+    loaded_modules = []
+    errors = []
+    
+    if packages:
+        for package in packages:
+            try:
+                modules = discover_task_modules(package_name=package)
+                loaded_modules.extend(modules)
+            except Exception as e:
+                errors.append(f"包 {package}: {str(e)}")
+                logger.error(f"加载包 {package} 失败: {e}")
+    
+    if directories:
+        for directory in directories:
+            try:
+                modules = discover_task_modules(directory=directory)
+                loaded_modules.extend(modules)
+            except Exception as e:
+                errors.append(f"目录 {directory}: {str(e)}")
+                logger.error(f"加载目录 {directory} 失败: {e}")
+    
+    after_count = len(_task_registry)
+    new_count = after_count - before_count
+    
+    result = {
+        "total_tasks": after_count,
+        "new_tasks": new_count,
+        "loaded_modules": loaded_modules,
+        "errors": errors if errors else None
+    }
+    
+    logger.info(f"任务重载完成，共 {after_count} 个任务，新增 {new_count} 个")
+    return result
+
+
+def custom_task_dispatcher(func_name: str, *args, **kwargs):
+    """
+    自定义任务调度器，用于 APScheduler 序列化
+    
+    这个函数作为所有自定义任务的入口点，APScheduler 可以正确序列化它。
+    执行时从注册表或数据库加载实际的代码并执行。
+    """
+    from app.services.custom_tasks import execute_custom_task_code
+    
+    return execute_custom_task_code(func_name, args, kwargs)

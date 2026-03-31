@@ -77,6 +77,21 @@ class AIToolCall(Base):
         return f"<AIToolCall(id={self.id}, session_id={self.session_id}, tool_name={self.tool_name})>"
 
 
+class CustomTask(Base):
+    __tablename__ = 'custom_tasks'
+
+    name = Column(String(128), primary_key=True)
+    category = Column(String(64), nullable=False, default='custom')
+    description = Column(String(255), nullable=True)
+    code = Column(Text, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<CustomTask(name={self.name}, category={self.category}, enabled={self.enabled})>"
+
+
 DEFAULT_CONFIG = {
     "log_retention_days": {"value": "30", "description": "日志保留天数"},
     "log_auto_cleanup": {"value": "true", "description": "是否自动清理日志"},
@@ -93,4 +108,7 @@ DEFAULT_CONFIG = {
     "ai_stream_enabled": {"value": "true", "description": "是否启用 AI 流式输出"},
     "ai_agent_api_key": {"value": "", "description": "外部 AI Agent 调用密钥"},
     "ai_max_history_messages": {"value": "12", "description": "AI 上下文最大历史消息数"},
+    "custom_task_timeout": {"value": "30", "description": "自定义任务执行超时时间（秒）"},
+    "custom_task_forbidden_modules": {"value": "pickle,marshal,shelve,ctypes", "description": "禁止导入的模块列表（逗号分隔）"},
+    "custom_task_forbidden_builtins": {"value": "__import__,compile,exec,eval,breakpoint", "description": "禁止调用的内置函数列表（逗号分隔）"},
 } 

@@ -11,6 +11,7 @@ from app.models.sql_model import (
     AISession,
     AIToolCall,
     Base,
+    CustomTask,
     DEFAULT_CONFIG,
     JobLog,
     SystemConfig,

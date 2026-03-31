@@ -3,9 +3,10 @@
 数据库初始化脚本
 
 用法:
-  python scripts/init_db.py           # 创建不存在的表
-  python scripts/init_db.py --reset   # 删除并重建所有表 (危险操作)
-  python scripts/init_db.py --status  # 查看数据库表状态
+  python scripts/init_db.py              # 创建不存在的表
+  python scripts/init_db.py --reset      # 删除并重建所有表 (危险操作)
+  python scripts/init_db.py --reset-config  # 重置系统配置为默认值
+  python scripts/init_db.py --status     # 查看数据库表状态
 """
 import argparse
 import sys
@@ -13,8 +14,31 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.database import engine, init_db, reset_db, get_db_status
-from app.models.sql_model import Base
+from app.core.database import engine, init_db, reset_db, get_db_status, _session_factory
+from app.models.sql_model import Base, SystemConfig, DEFAULT_CONFIG
+
+
+def reset_config():
+    """重置系统配置为默认值"""
+    db = _session_factory()
+    try:
+        deleted = db.query(SystemConfig).delete()
+        db.commit()
+        print(f"✓ 已删除 {deleted} 个旧配置")
+        
+        for key, config in DEFAULT_CONFIG.items():
+            db.add(SystemConfig(
+                key=key,
+                value=config["value"],
+                description=config["description"]
+            ))
+        db.commit()
+        print(f"✓ 已初始化 {len(DEFAULT_CONFIG)} 个默认配置")
+    except Exception as e:
+        db.rollback()
+        print(f"✗ 重置配置失败: {e}")
+    finally:
+        db.close()
 
 
 def main():
@@ -25,6 +49,7 @@ def main():
 示例:
   python scripts/init_db.py              # 创建不存在的表
   python scripts/init_db.py --reset      # 重置数据库 (需要确认)
+  python scripts/init_db.py --reset-config  # 重置系统配置
   python scripts/init_db.py --status     # 查看表状态
         """
     )
@@ -32,6 +57,11 @@ def main():
         '--reset',
         action='store_true',
         help='删除并重建所有表 (危险操作，需要确认)'
+    )
+    parser.add_argument(
+        '--reset-config',
+        action='store_true',
+        help='重置系统配置为默认值'
     )
     parser.add_argument(
         '--status',
@@ -65,6 +95,11 @@ def main():
         print("\n正在重置数据库...")
         reset_db()
         print("✓ 数据库已重置完成")
+        return
+
+    if args.reset_config:
+        print("\n正在重置系统配置...")
+        reset_config()
         return
 
     print("\n正在初始化数据库...")

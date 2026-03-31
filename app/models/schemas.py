@@ -36,9 +36,13 @@ class JobCreate(BaseModel):
     trigger: str
     args: Optional[List] = []
     kwargs: Optional[Dict] = {}
-    job_id: str
+    id: Optional[str] = None
+    job_id: Optional[str] = None
     name: Optional[str] = None
     trigger_args: Optional[Dict[str, Any]] = None
+    
+    def get_job_id(self) -> Optional[str]:
+        return self.id or self.job_id
 
 
 class JobResponse(BaseModel):
@@ -57,6 +61,7 @@ class AvailableTask(BaseModel):
     category: str
     description: str
     parameters: Dict[str, Any]
+    is_custom: bool = False
 
 
 class LogEntry(BaseModel):
@@ -103,6 +108,17 @@ class AIConfigUpdateRequest(BaseModel):
     ai_stream_enabled: Optional[str] = None
     ai_agent_api_key: Optional[str] = None
     ai_max_history_messages: Optional[str] = None
+
+
+class CodeGenerateRequest(BaseModel):
+    description: str
+    func_name: Optional[str] = None
+    category: Optional[str] = "custom"
+
+
+class CodeReviewRequest(BaseModel):
+    code: str
+    func_name: Optional[str] = None
 
 
 class AISessionResponse(BaseModel):
@@ -164,3 +180,32 @@ TYPE_MAP = {
     dict: 'dict',
     None: 'any'
 }
+
+
+class CustomTaskCreate(BaseModel):
+    name: str
+    category: str = 'custom'
+    description: Optional[str] = None
+    code: str
+
+
+class CustomTaskUpdate(BaseModel):
+    category: Optional[str] = None
+    description: Optional[str] = None
+    code: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class CustomTaskResponse(BaseModel):
+    name: str
+    category: str
+    description: Optional[str] = None
+    code: str
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+    parameters: Optional[Dict[str, Any]] = None
+    is_used: bool = False
+    used_by_jobs: List[str] = []
+
+    model_config = {"from_attributes": True}

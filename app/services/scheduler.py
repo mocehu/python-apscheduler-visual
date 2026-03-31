@@ -112,6 +112,23 @@ def start_scheduler():
     
     _cleanup_invalid_jobs()
     setup_auto_cleanup()
+    _load_custom_tasks()
+
+
+def _load_custom_tasks():
+    from app.services.custom_tasks import load_custom_tasks
+    
+    db = _session_factory()
+    try:
+        result = load_custom_tasks(db)
+        if result["loaded"]:
+            logger.info(f"已加载 {len(result['loaded'])} 个自定义任务")
+        if result["errors"]:
+            logger.warning(f"加载自定义任务出错: {result['errors']}")
+    except Exception as e:
+        logger.warning(f"加载自定义任务时出错: {e}")
+    finally:
+        db.close()
 
 
 def _cleanup_invalid_jobs():
@@ -182,13 +199,14 @@ def stop_scheduler():
 
 
 def add_job(func_name, trigger, args=None, kwargs=None, job_id=None, name=None, **trigger_args):
-    from app.services.tasks import get_task
+    from app.services.tasks import get_task, custom_task_dispatcher
+    from app.services.custom_tasks import get_custom_task as get_custom_task_from_db
     
     task_func = get_task(func_name)
     if not task_func:
         raise ValueError(f"任务函数 '{func_name}' 找不到")
     
-    if scheduler.get_job(job_id):
+    if job_id and scheduler.get_job(job_id):
         raise ValueError(f"任务 ID '{job_id}' 已存在")
 
     if trigger == "cron":
@@ -200,16 +218,33 @@ def add_job(func_name, trigger, args=None, kwargs=None, job_id=None, name=None, 
     else:
         raise ValueError(f"不支持的触发器类型 '{trigger}'")
 
-    scheduler.add_job(
-        task_func,
-        aps_trigger,
-        args=args,
-        kwargs=kwargs,
-        id=job_id,
-        name=name,
-        **trigger_args
-    )
-    logger.info(f'添加任务: {job_id} ({name or "无名称"})')
+    # 检查是否是自定义任务
+    is_custom = hasattr(task_func, 'code') or (hasattr(task_func, 'task_name') and hasattr(task_func, 'task_category'))
+    
+    if is_custom:
+        # 自定义任务使用调度器，确保可以序列化
+        job = scheduler.add_job(
+            custom_task_dispatcher,
+            aps_trigger,
+            args=[func_name] + (args or []),
+            kwargs=kwargs or {},
+            id=job_id,
+            name=name,
+        )
+    else:
+        # 内置任务直接使用函数
+        job = scheduler.add_job(
+            task_func,
+            aps_trigger,
+            args=args,
+            kwargs=kwargs,
+            id=job_id,
+            name=name,
+        )
+    
+    actual_job_id = job.id
+    logger.info(f'添加任务: {actual_job_id} ({name or "无名称"}) [自定义任务: {is_custom}]')
+    return actual_job_id
 
 
 def remove_job(job_id):
@@ -218,7 +253,7 @@ def remove_job(job_id):
 
 
 def update_job(func: str, job_id: str, trigger: str, trigger_args: dict, args: list, kwargs: dict, name: str = None):
-    from app.services.tasks import get_task
+    from app.services.tasks import get_task, custom_task_dispatcher
     
     task_func = get_task(func)
     if not task_func:
@@ -244,7 +279,14 @@ def update_job(func: str, job_id: str, trigger: str, trigger_args: dict, args: l
     else:
         raise ValueError(f"不支持的触发器类型: {trigger}")
 
-    modify_kwargs = {"args": args, "kwargs": kwargs, "func": task_func}
+    # 检查是否是自定义任务
+    is_custom = hasattr(task_func, 'code') or (hasattr(task_func, 'task_name') and hasattr(task_func, 'task_category'))
+    
+    if is_custom:
+        modify_kwargs = {"args": [func] + (args or []), "kwargs": kwargs or {}, "func": custom_task_dispatcher}
+    else:
+        modify_kwargs = {"args": args, "kwargs": kwargs, "func": task_func}
+    
     if name is not None:
         modify_kwargs["name"] = name
     job.modify(**modify_kwargs)
@@ -253,7 +295,7 @@ def update_job(func: str, job_id: str, trigger: str, trigger_args: dict, args: l
     if is_paused:
         scheduler.pause_job(job_id)
     
-    logger.info(f'更新任务: {job_id}')
+    logger.info(f'更新任务: {job_id} [自定义任务: {is_custom}]')
 
 
 def pause_job(job_id):
@@ -290,14 +332,27 @@ def get_all_jobs():
     for job in jobs:
         try:
             next_run = getattr(job, 'next_run_time', None)
+            
+            # 处理自定义任务的 func 名称
+            func_name = job.func.__name__ if hasattr(job.func, '__name__') else str(job.func)
+            args = list(job.args) if job.args else []
+            kwargs = dict(job.kwargs) if job.kwargs else {}
+            
+            # 如果是 custom_task_dispatcher，从 args[0] 获取实际函数名
+            if func_name == 'custom_task_dispatcher' and args:
+                actual_func_name = args[0]
+                args = args[1:]  # 剩余的才是实际参数
+            else:
+                actual_func_name = func_name
+            
             job_info.append({
                 "id": job.id,
                 "name": job.name,
-                "func": job.func.__name__ if hasattr(job.func, '__name__') else str(job.func),
+                "func": actual_func_name,
                 "next_run_time": str(next_run) if next_run else None,
                 "trigger": str(job.trigger),
-                "args": list(job.args) if job.args else [],
-                "kwargs": dict(job.kwargs) if job.kwargs else {},
+                "args": args,
+                "kwargs": kwargs,
                 "status": "已暂停" if next_run is None else "工作中"
             })
         except Exception as e:
@@ -325,13 +380,27 @@ def get_job_by_id(job_id: str) -> Optional[Dict[str, Any]]:
     if not job:
         return None
     
+    next_run = job.next_run_time
+    
+    # 处理自定义任务的 func 名称
+    func_name = job.func.__name__ if hasattr(job.func, '__name__') else str(job.func)
+    args = list(job.args) if job.args else []
+    kwargs = dict(job.kwargs) if job.kwargs else {}
+    
+    # 如果是 custom_task_dispatcher，从 args[0] 获取实际函数名
+    if func_name == 'custom_task_dispatcher' and args:
+        actual_func_name = args[0]
+        args = args[1:]  # 剩余的才是实际参数
+    else:
+        actual_func_name = func_name
+    
     return {
         "id": job.id,
         "name": job.name,
-        "func": job.func.__name__,
-        "next_run_time": str(job.next_run_time) if job.next_run_time else None,
+        "func": actual_func_name,
+        "next_run_time": str(next_run) if next_run else None,
         "trigger": str(job.trigger),
-        "args": list(job.args) if job.args else [],
-        "kwargs": dict(job.kwargs) if job.kwargs else {},
-        "status": "已暂停" if job.next_run_time is None else "工作中"
+        "args": args,
+        "kwargs": kwargs,
+        "status": "已暂停" if next_run is None else "工作中"
     }

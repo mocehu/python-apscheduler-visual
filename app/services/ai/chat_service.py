@@ -1,6 +1,7 @@
 import json
+import re
 import uuid
-from typing import Any, Dict, Generator, List
+from typing import Any, Dict, Generator, List, Optional
 
 from app.core.database import (
     add_ai_message,
@@ -259,3 +260,334 @@ def chat_stream(db, message: str, session_id=None, model=None, mode: str = 'draf
         yield {"type": "draft", "draft": draft}
 
     yield {"type": "done", "reply": assistant_content}
+
+
+CODE_GENERATE_PROMPT = """你是专注于 Python 定时任务的工具函数代码生成助手。
+请严格按照以下规则，仅生成被定时调用的目标业务函数，禁止实现任何定时调度框架/逻辑，仅保留核心任务函数：
+
+## 强制代码规范
+1. 函数结构：仅输出唯一一个主函数，采用 `snake_case` 命名法，无额外类、无依赖、无调度代码；
+2. 类型注解：函数必须包含完整标准类型注解，明确标注所有参数类型、返回值类型（支持 `list/dict/Optional/Union` 等标准类型）；
+3. 文档字符串：必须编写**标准 Google 风格文档字符串，包含：函数功能、所有参数说明、返回值说明、可能抛出的异常；
+4. 日志输出：统一使用 `print()` 输出执行信息（系统会自动捕获）；
+5. 返回格式：固定返回字典格式：
+   ```python
+   {{"output": "执行结果文本", "status": 布尔值, "error": "异常信息（无异常为空字符串）"}}
+   ```
+6. 依赖要求：优先使用 Python 内置标准库，最好不引入第三方包；
+7. 代码纯净：无测试代码、无调用示例、无注释冗余、无多余逻辑，代码可直接嵌入定时任务使用。
+
+## 安全限制
+
+禁止使用以下模块和函数：
+- 模块：{forbidden_modules}
+- 函数：{forbidden_builtins}
+
+## 输出格式
+
+只输出代码，不要解释。代码格式：
+
+```python
+def {func_name}(...):
+    ...
+```
+"""
+
+CODE_REVIEW_PROMPT = """你是一个 Python 代码审查助手。审查用户提供的代码，分析以下方面：
+
+## 审查内容
+
+1. **安全性**：是否使用了禁止的模块或函数
+2. **语法**：是否有语法错误
+3. **逻辑**：是否有潜在的逻辑问题
+4. **规范**：是否符合代码规范
+
+## 安全限制
+
+禁止的模块：{forbidden_modules}
+禁止的函数：{forbidden_builtins}
+
+## 输出格式
+
+以 JSON 格式输出审查结果：
+
+```json
+{{
+  "safe": true/false,
+  "errors": ["错误1", "错误2"],
+  "warnings": ["警告1", "警告2"],
+  "suggestions": ["建议1", "建议2"],
+  "summary": "总体评价"
+}}
+```
+
+只输出 JSON，不要其他内容。
+"""
+
+
+def generate_code(db, description: str, func_name: Optional[str] = None, category: str = "custom") -> Dict[str, Any]:
+    """
+    根据需求描述生成自定义任务代码
+    """
+    from app.services.custom_tasks import DEFAULT_FORBIDDEN_MODULES, DEFAULT_FORBIDDEN_BUILTINS
+    
+    provider = _build_provider(db)
+    model = get_config(db, "ai_model", "gpt-4o-mini")
+    
+    forbidden_modules = ", ".join(DEFAULT_FORBIDDEN_MODULES)
+    forbidden_builtins = ", ".join(DEFAULT_FORBIDDEN_BUILTINS)
+    
+    system_prompt = CODE_GENERATE_PROMPT.format(
+        forbidden_modules=forbidden_modules,
+        forbidden_builtins=forbidden_builtins,
+        func_name=func_name or "custom_task"
+    )
+    
+    user_message = f"需求：{description}"
+    if func_name:
+        user_message += f"\n函数名：{func_name}"
+    if category:
+        user_message += f"\n分类：{category}"
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message}
+    ]
+    
+    response = provider.chat(messages=messages, model=model, tools=[])
+    
+    if response.get('error'):
+        return {
+            "success": False,
+            "error": response.get('message', 'AI API 调用失败'),
+            "code": None
+        }
+    
+    content = response.get('choices', [{}])[0].get('message', {}).get('content', '')
+    
+    code_match = re.search(r'```python\s*(.*?)\s*```', content, re.DOTALL)
+    if code_match:
+        code = code_match.group(1)
+    else:
+        code_match = re.search(r'```\s*(.*?)\s*```', content, re.DOTALL)
+        code = code_match.group(1) if code_match else content
+    
+    return {
+        "success": True,
+        "code": code.strip(),
+        "func_name": func_name,
+        "category": category,
+        "raw_response": content
+    }
+
+
+def generate_code_stream(db, description: str, func_name: Optional[str] = None, category: str = "custom"):
+    """
+    流式生成代码
+    """
+    from app.services.custom_tasks import DEFAULT_FORBIDDEN_MODULES, DEFAULT_FORBIDDEN_BUILTINS
+    
+    provider = _build_provider(db)
+    model = get_config(db, "ai_model", "gpt-4o-mini")
+    
+    forbidden_modules = ", ".join(DEFAULT_FORBIDDEN_MODULES)
+    forbidden_builtins = ", ".join(DEFAULT_FORBIDDEN_BUILTINS)
+    
+    system_prompt = CODE_GENERATE_PROMPT.format(
+        forbidden_modules=forbidden_modules,
+        forbidden_builtins=forbidden_builtins,
+        func_name=func_name or "custom_task"
+    )
+    
+    user_message = f"需求：{description}"
+    if func_name:
+        user_message += f"\n函数名：{func_name}"
+    if category:
+        user_message += f"\n分类：{category}"
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message}
+    ]
+    
+    full_content = ""
+    
+    yield {"type": "status", "message": "正在生成代码..."}
+    
+    for chunk in provider.chat_stream(messages=messages, model=model, tools=[]):
+        if chunk.get("error"):
+            yield {"type": "error", "message": chunk.get("message", "AI API 调用失败")}
+            return
+        
+        delta = chunk.get('choices', [{}])[0].get('delta', {})
+        if 'content' in delta and delta['content']:
+            full_content += delta['content']
+            yield {"type": "content", "content": delta['content']}
+    
+    code_match = re.search(r'```python\s*(.*?)\s*```', full_content, re.DOTALL)
+    if code_match:
+        code = code_match.group(1)
+    else:
+        code_match = re.search(r'```\s*(.*?)\s*```', full_content, re.DOTALL)
+        code = code_match.group(1) if code_match else full_content
+    
+    yield {
+        "type": "done",
+        "code": code.strip(),
+        "func_name": func_name,
+        "category": category
+    }
+
+
+def review_code(db, code: str, func_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    审查代码的安全性和质量
+    """
+    import json
+    from app.services.custom_tasks import DEFAULT_FORBIDDEN_MODULES, DEFAULT_FORBIDDEN_BUILTINS, check_code_security
+    
+    security_result = check_code_security(code)
+    
+    provider = _build_provider(db)
+    model = get_config(db, "ai_model", "gpt-4o-mini")
+    
+    forbidden_modules = ", ".join(DEFAULT_FORBIDDEN_MODULES)
+    forbidden_builtins = ", ".join(DEFAULT_FORBIDDEN_BUILTINS)
+    
+    system_prompt = CODE_REVIEW_PROMPT.format(
+        forbidden_modules=forbidden_modules,
+        forbidden_builtins=forbidden_builtins
+    )
+    
+    user_message = f"请审查以下代码：\n\n```python\n{code}\n```"
+    if func_name:
+        user_message += f"\n\n函数名：{func_name}"
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message}
+    ]
+    
+    response = provider.chat(messages=messages, model=model, tools=[])
+    
+    ai_result = {
+        "safe": security_result["safe"],
+        "errors": security_result["errors"],
+        "warnings": security_result["warnings"],
+        "suggestions": [],
+        "summary": ""
+    }
+    
+    if not response.get('error'):
+        content = response.get('choices', [{}])[0].get('message', {}).get('content', '')
+        
+        json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+        if json_match:
+            try:
+                ai_analysis = json.loads(json_match.group(1))
+                ai_result["suggestions"] = ai_analysis.get("suggestions", [])
+                ai_result["summary"] = ai_analysis.get("summary", "")
+                if ai_analysis.get("errors"):
+                    ai_result["errors"].extend(ai_analysis["errors"])
+                if ai_analysis.get("warnings"):
+                    ai_result["warnings"].extend(ai_analysis["warnings"])
+            except json.JSONDecodeError:
+                pass
+    
+    return {
+        "success": True,
+        "security": ai_result,
+        "has_issues": len(ai_result["errors"]) > 0 or len(ai_result["warnings"]) > 0
+    }
+
+
+def review_code_stream(db, code: str, func_name: Optional[str] = None):
+    """
+    流式审查代码
+    """
+    import json
+    from app.services.custom_tasks import DEFAULT_FORBIDDEN_MODULES, DEFAULT_FORBIDDEN_BUILTINS, check_code_security
+    
+    security_result = check_code_security(code)
+    
+    yield {
+        "type": "security",
+        "safe": security_result["safe"],
+        "errors": security_result["errors"],
+        "warnings": security_result["warnings"]
+    }
+    
+    if not security_result["safe"]:
+        yield {
+            "type": "done",
+            "security": {
+                "safe": False,
+                "errors": security_result["errors"],
+                "warnings": security_result["warnings"],
+                "suggestions": [],
+                "summary": "代码存在安全问题，请修复后再使用"
+            },
+            "has_issues": True
+        }
+        return
+    
+    provider = _build_provider(db)
+    model = get_config(db, "ai_model", "gpt-4o-mini")
+    
+    forbidden_modules = ", ".join(DEFAULT_FORBIDDEN_MODULES)
+    forbidden_builtins = ", ".join(DEFAULT_FORBIDDEN_BUILTINS)
+    
+    system_prompt = CODE_REVIEW_PROMPT.format(
+        forbidden_modules=forbidden_modules,
+        forbidden_builtins=forbidden_builtins
+    )
+    
+    user_message = f"请审查以下代码：\n\n```python\n{code}\n```"
+    if func_name:
+        user_message += f"\n\n函数名：{func_name}"
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message}
+    ]
+    
+    full_content = ""
+    
+    yield {"type": "status", "message": "正在分析代码..."}
+    
+    for chunk in provider.chat_stream(messages=messages, model=model, tools=[]):
+        if chunk.get("error"):
+            yield {"type": "error", "message": chunk.get("message", "AI API 调用失败")}
+            return
+        
+        delta = chunk.get('choices', [{}])[0].get('delta', {})
+        if 'content' in delta and delta['content']:
+            full_content += delta['content']
+            yield {"type": "content", "content": delta['content']}
+    
+    ai_result = {
+        "safe": security_result["safe"],
+        "errors": security_result["errors"],
+        "warnings": security_result["warnings"],
+        "suggestions": [],
+        "summary": ""
+    }
+    
+    json_match = re.search(r'```json\s*(.*?)\s*```', full_content, re.DOTALL)
+    if json_match:
+        try:
+            ai_analysis = json.loads(json_match.group(1))
+            ai_result["suggestions"] = ai_analysis.get("suggestions", [])
+            ai_result["summary"] = ai_analysis.get("summary", "")
+            if ai_analysis.get("errors"):
+                ai_result["errors"].extend(ai_analysis["errors"])
+            if ai_analysis.get("warnings"):
+                ai_result["warnings"].extend(ai_analysis["warnings"])
+        except json.JSONDecodeError:
+            pass
+    
+    yield {
+        "type": "done",
+        "security": ai_result,
+        "has_issues": len(ai_result["errors"]) > 0 or len(ai_result["warnings"]) > 0
+    }
