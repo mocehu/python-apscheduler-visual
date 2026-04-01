@@ -10,6 +10,9 @@ from app.models.sql_model import (
     AIMessage,
     AISession,
     AIToolCall,
+    AlertChannel,
+    AlertConfig,
+    AlertHistory,
     Base,
     CustomTask,
     DEFAULT_CONFIG,
@@ -323,4 +326,143 @@ def clear_all_logs(db: Session) -> int:
     deleted = db.execute(delete(JobLog))
     db.commit()
     logger.info(f"已清除所有日志: {deleted.rowcount} 条")
+    return deleted.rowcount
+
+
+def create_alert_channel(db: Session, name: str, type: str, config: dict, enabled: bool = True) -> AlertChannel:
+    channel = AlertChannel(
+        name=name,
+        type=type,
+        config=json.dumps(config, ensure_ascii=False),
+        enabled=enabled
+    )
+    db.add(channel)
+    db.commit()
+    db.refresh(channel)
+    return channel
+
+
+def get_alert_channel(db: Session, channel_id: int) -> AlertChannel:
+    return db.query(AlertChannel).filter(AlertChannel.id == channel_id).first()
+
+
+def get_alert_channel_by_name(db: Session, name: str) -> AlertChannel:
+    return db.query(AlertChannel).filter(AlertChannel.name == name).first()
+
+
+def get_alert_channels(db: Session, enabled_only: bool = False) -> list:
+    query = db.query(AlertChannel)
+    if enabled_only:
+        query = query.filter(AlertChannel.enabled == True)
+    return query.order_by(AlertChannel.created_at.desc()).all()
+
+
+def update_alert_channel(db: Session, channel_id: int, name: str = None, config: dict = None, enabled: bool = None) -> AlertChannel:
+    channel = get_alert_channel(db, channel_id)
+    if not channel:
+        return None
+    if name is not None:
+        channel.name = name
+    if config is not None:
+        channel.config = json.dumps(config, ensure_ascii=False)
+    if enabled is not None:
+        channel.enabled = enabled
+    db.commit()
+    db.refresh(channel)
+    return channel
+
+
+def delete_alert_channel(db: Session, channel_id: int) -> bool:
+    deleted = db.query(AlertChannel).filter(AlertChannel.id == channel_id).delete()
+    db.commit()
+    return bool(deleted)
+
+
+def create_alert_config(db: Session, rule_type: str, channels: list, job_id: str = None, threshold: int = None, cooldown_minutes: int = 30, enabled: bool = True) -> AlertConfig:
+    config = AlertConfig(
+        job_id=job_id,
+        rule_type=rule_type,
+        threshold=threshold,
+        channels=json.dumps(channels, ensure_ascii=False),
+        cooldown_minutes=cooldown_minutes,
+        enabled=enabled
+    )
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+def get_alert_config(db: Session, config_id: int) -> AlertConfig:
+    return db.query(AlertConfig).filter(AlertConfig.id == config_id).first()
+
+
+def get_alert_configs(db: Session, enabled_only: bool = False) -> list:
+    query = db.query(AlertConfig)
+    if enabled_only:
+        query = query.filter(AlertConfig.enabled == True)
+    return query.order_by(AlertConfig.created_at.desc()).all()
+
+
+def update_alert_config(db: Session, config_id: int, job_id: str = None, rule_type: str = None, threshold: int = None, channels: list = None, cooldown_minutes: int = None, enabled: bool = None) -> AlertConfig:
+    config = get_alert_config(db, config_id)
+    if not config:
+        return None
+    if job_id is not None:
+        config.job_id = job_id
+    if rule_type is not None:
+        config.rule_type = rule_type
+    if threshold is not None:
+        config.threshold = threshold
+    if channels is not None:
+        config.channels = json.dumps(channels, ensure_ascii=False)
+    if cooldown_minutes is not None:
+        config.cooldown_minutes = cooldown_minutes
+    if enabled is not None:
+        config.enabled = enabled
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+def delete_alert_config(db: Session, config_id: int) -> bool:
+    deleted = db.query(AlertConfig).filter(AlertConfig.id == config_id).delete()
+    db.commit()
+    return bool(deleted)
+
+
+def get_alert_history(db: Session, history_id: int) -> AlertHistory:
+    return db.query(AlertHistory).filter(AlertHistory.id == history_id).first()
+
+
+def list_alert_history(db: Session, job_id: str = None, status: bool = None, channel_type: str = None, start_time: datetime = None, end_time: datetime = None, page: int = 1, limit: int = 20) -> dict:
+    query = db.query(AlertHistory)
+    
+    if job_id:
+        query = query.filter(AlertHistory.job_id.ilike(f"%{job_id}%"))
+    if status is not None:
+        query = query.filter(AlertHistory.status == status)
+    if channel_type:
+        query = query.filter(AlertHistory.channel_type == channel_type)
+    if start_time:
+        query = query.filter(AlertHistory.sent_at >= start_time)
+    if end_time:
+        query = query.filter(AlertHistory.sent_at <= end_time)
+    
+    total_count = query.count()
+    
+    offset = (page - 1) * limit
+    logs = query.order_by(AlertHistory.sent_at.desc()).offset(offset).limit(limit).all()
+    
+    return {"count": total_count, "logs": logs}
+
+
+def cleanup_old_alert_history(db: Session, retention_days: int = None) -> int:
+    if retention_days is None:
+        retention_days = get_config_int(db, "alert_history_retention_days", 30)
+    
+    cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+    deleted = db.execute(delete(AlertHistory).where(AlertHistory.sent_at < cutoff_date))
+    db.commit()
+    logger.info(f"告警历史清理完成: 删除 {deleted.rowcount} 条")
     return deleted.rowcount

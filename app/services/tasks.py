@@ -291,17 +291,28 @@ def get_task_categories() -> List[str]:
 
 
 def get_task_info(task_name: str = None) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+    from app.services.docstring_parser import parse_docstring
+    
     def extract_task_info(name, func):
         sig = func.signature
         params = {}
+        
+        original_func = getattr(func, 'original_func', None)
+        docstring = original_func.__doc__ if original_func else None
+        func_desc, doc_params = parse_docstring(docstring) if docstring else ("", {})
         
         for param_name, param in sig.parameters.items():
             param_info = {
                 "name": param_name,
                 "type": str(param.annotation) if param.annotation != inspect.Parameter.empty else "未知",
                 "default": str(param.default) if param.default != inspect.Parameter.empty else None,
-                "required": param.default == inspect.Parameter.empty
+                "required": param.default == inspect.Parameter.empty,
+                "description": doc_params.get(param_name, {}).get("description", "")
             }
+            
+            if doc_params.get(param_name, {}).get("type"):
+                param_info["docstring_type"] = doc_params[param_name]["type"]
+            
             params[param_name] = param_info
         
         is_custom = hasattr(func, 'code')

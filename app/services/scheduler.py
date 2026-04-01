@@ -71,6 +71,9 @@ def job_listener(event):
         if event.exception:
             log_to_db(job_id, False, str(event.exception), execution_duration, None)
             logger.error(f"任务 {job_id} 执行失败: {event.exception}")
+            
+            from app.services.alert import check_and_alert
+            check_and_alert(job_id, False, execution_duration, str(event.exception))
         else:
             if hasattr(event, 'retval'):
                 result = event.retval
@@ -89,19 +92,38 @@ def job_listener(event):
                     if status:
                         log_to_db(job_id, True, '任务成功执行', duration, output)
                         logger.info(f"任务 {job_id} 执行成功: {output}. 执行时长: {duration}毫秒")
+                        
+                        from app.services.alert import check_and_alert, reset_fail_count
+                        reset_fail_count(job_id)
+                        check_and_alert(job_id, True, duration, None)
                     else:
                         log_to_db(job_id, False, error or '任务执行失败', duration, output)
                         logger.error(f"任务 {job_id} 执行失败: {error or '未知错误'}. 执行时长: {duration}毫秒")
+                        
+                        from app.services.alert import check_and_alert
+                        check_and_alert(job_id, False, duration, error)
                 elif isinstance(result, tuple) and len(result) == 2:
                     duration, output = result
                     log_to_db(job_id, True, '任务成功执行', duration, output)
                     logger.info(f"任务 {job_id} 执行成功: {output}. 执行时长: {duration}毫秒")
+                    
+                    from app.services.alert import check_and_alert, reset_fail_count
+                    reset_fail_count(job_id)
+                    check_and_alert(job_id, True, duration, None)
                 else:
                     log_to_db(job_id, True, '任务成功执行', execution_duration, str(result))
                     logger.info(f"任务 {job_id} 执行成功: {result}. 执行时长: {execution_duration}毫秒")
+                    
+                    from app.services.alert import check_and_alert, reset_fail_count
+                    reset_fail_count(job_id)
+                    check_and_alert(job_id, True, execution_duration, None)
             else:
                 log_to_db(job_id, True, '任务成功执行', execution_duration, '无输出内容')
                 logger.info(f"任务 {job_id} 执行成功，无返回值. 执行时长: {execution_duration}毫秒")
+                
+                from app.services.alert import check_and_alert, reset_fail_count
+                reset_fail_count(job_id)
+                check_and_alert(job_id, True, execution_duration, None)
 
 
 def start_scheduler():
@@ -139,6 +161,10 @@ def _cleanup_invalid_jobs():
                 _ = job.func
             except (LookupError, AttributeError):
                 logger.warning(f"发现无效任务引用: {job.id}, 正在移除...")
+                
+                from app.services.alert import check_and_alert
+                check_and_alert(job.id, False, None, "任务不存在或已被移除", job_exists=False)
+                
                 try:
                     scheduler.remove_job(job.id)
                 except Exception as e:

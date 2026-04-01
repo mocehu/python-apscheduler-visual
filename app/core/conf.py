@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 GITHUB_REPO = os.getenv("GITHUB_REPO", "mocehu/fastapi-apscheduler-visual")
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}"
 

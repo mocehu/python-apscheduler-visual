@@ -92,6 +92,55 @@ class CustomTask(Base):
         return f"<CustomTask(name={self.name}, category={self.category}, enabled={self.enabled})>"
 
 
+class AlertChannel(Base):
+    __tablename__ = 'alert_channels'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False, unique=True)
+    type = Column(String(32), nullable=False)
+    config = Column(Text, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<AlertChannel(id={self.id}, name={self.name}, type={self.type}, enabled={self.enabled})>"
+
+
+class AlertConfig(Base):
+    __tablename__ = 'alert_configs'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String(128), nullable=True)
+    rule_type = Column(String(32), nullable=False)
+    threshold = Column(Integer, nullable=True)
+    channels = Column(Text, nullable=False)
+    cooldown_minutes = Column(Integer, nullable=False, default=30)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<AlertConfig(id={self.id}, job_id={self.job_id}, rule_type={self.rule_type}, enabled={self.enabled})>"
+
+
+class AlertHistory(Base):
+    __tablename__ = 'alert_history'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String(128), nullable=False)
+    rule_type = Column(String(32), nullable=False)
+    channel_type = Column(String(32), nullable=False)
+    channel_id = Column(Integer, nullable=True)
+    status = Column(Boolean, nullable=False)
+    message = Column(Text, nullable=False)
+    sent_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    error = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return f"<AlertHistory(id={self.id}, job_id={self.job_id}, rule_type={self.rule_type}, status={self.status})>"
+
+
 DEFAULT_CONFIG = {
     "log_retention_days": {"value": "30", "description": "日志保留天数"},
     "log_auto_cleanup": {"value": "true", "description": "是否自动清理日志"},
@@ -111,4 +160,6 @@ DEFAULT_CONFIG = {
     "custom_task_timeout": {"value": "30", "description": "自定义任务执行超时时间（秒）"},
     "custom_task_forbidden_modules": {"value": "pickle,marshal,shelve,ctypes", "description": "禁止导入的模块列表（逗号分隔）"},
     "custom_task_forbidden_builtins": {"value": "__import__,compile,exec,eval,breakpoint", "description": "禁止调用的内置函数列表（逗号分隔）"},
+    "alert_enabled": {"value": "true", "description": "是否启用告警功能"},
+    "alert_history_retention_days": {"value": "30", "description": "告警历史保留天数"},
 } 

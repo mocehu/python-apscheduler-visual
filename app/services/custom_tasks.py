@@ -454,8 +454,12 @@ def is_task_used(func_name: str) -> Dict[str, Any]:
 
 def get_task_parameters(code: str, func_name: str) -> Dict[str, Any]:
     """
-    解析任务函数的参数信息
+    解析任务函数的参数信息，包括从 docstring 提取参数描述
+    
+    支持 Google、NumPy、Sphinx/reST 格式的 docstring
     """
+    from app.services.docstring_parser import parse_docstring
+    
     try:
         safe_globals = create_safe_globals()
         local_vars = {}
@@ -467,14 +471,23 @@ def get_task_parameters(code: str, func_name: str) -> Dict[str, Any]:
         func = local_vars[func_name]
         sig = inspect.signature(func)
         
+        docstring = func.__doc__
+        func_desc, doc_params = parse_docstring(docstring) if docstring else ("", {})
+        
         params = {}
         for param_name, param in sig.parameters.items():
-            params[param_name] = {
+            param_info = {
                 "name": param_name,
                 "type": str(param.annotation) if param.annotation != inspect.Parameter.empty else "any",
                 "default": str(param.default) if param.default != inspect.Parameter.empty else None,
-                "required": param.default == inspect.Parameter.empty
+                "required": param.default == inspect.Parameter.empty,
+                "description": doc_params.get(param_name, {}).get("description", "")
             }
+            
+            if doc_params.get(param_name, {}).get("type"):
+                param_info["docstring_type"] = doc_params[param_name]["type"]
+            
+            params[param_name] = param_info
         
         return params
     except Exception as e:

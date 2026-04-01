@@ -23,6 +23,18 @@ from app.core.database import (
     cleanup_old_logs,
     get_log_stats,
     clear_all_logs,
+    create_alert_channel,
+    get_alert_channel,
+    get_alert_channel_by_name,
+    get_alert_channels,
+    update_alert_channel,
+    delete_alert_channel,
+    create_alert_config,
+    get_alert_config,
+    get_alert_configs,
+    update_alert_config,
+    delete_alert_config,
+    list_alert_history,
 )
 from app.models.schemas import (
     AIChatRequest,
@@ -45,6 +57,15 @@ from app.models.schemas import (
     JobLogPage,
     JobLogResponse,
     ResponseModel,
+    AlertChannelCreate,
+    AlertChannelUpdate,
+    AlertChannelResponse,
+    AlertConfigCreate,
+    AlertConfigUpdate,
+    AlertConfigResponse,
+    AlertHistoryResponse,
+    AlertHistoryPage,
+    AlertTestResponse,
 )
 from app.models.sql_model import JobLog, DEFAULT_CONFIG
 from app.services.scheduler import add_job, remove_job, update_job, get_all_jobs, get_job_by_id, pause_job, resume_job, \
@@ -105,7 +126,7 @@ def list_available_tasks(category: Optional[str] = None) -> ResponseModel:
                 name=task_info["name"],
                 category=task_info["category"],
                 description=task_info["description"],
-                parameters=task_info["parameters"],
+                parameters=len(task_info["parameters"]),
                 is_custom=task_info.get("is_custom", False)
             )
         )
@@ -829,3 +850,260 @@ def delete_custom_task_endpoint(name: str, db: Session = Depends(get_db)) -> Res
     if not deleted:
         return ResponseModel(code=404, msg=f"自定义任务 '{name}' 不存在")
     return ResponseModel(data={"name": name}, msg="自定义任务已删除")
+
+
+@router.get("/alerts/channels/", summary="获取告警渠道列表")
+@api_error_handler
+def list_alert_channels_endpoint(enabled_only: bool = Query(False, description="只返回已启用的渠道"), db: Session = Depends(get_db)) -> ResponseModel:
+    channels = get_alert_channels(db, enabled_only=enabled_only)
+    data = [AlertChannelResponse.model_validate(channel) for channel in channels]
+    return ResponseModel(data=data, msg="获取告警渠道列表成功")
+
+
+@router.post("/alerts/channels/", summary="创建告警渠道")
+@api_error_handler
+def create_alert_channel_endpoint(request: AlertChannelCreate, db: Session = Depends(get_db)) -> ResponseModel:
+    existing = get_alert_channel_by_name(db, request.name)
+    if existing:
+        return ResponseModel(code=400, msg=f"渠道名称 '{request.name}' 已存在")
+    
+    channel = create_alert_channel(
+        db,
+        name=request.name,
+        type=request.type,
+        config=request.config,
+        enabled=request.enabled
+    )
+    return ResponseModel(data=AlertChannelResponse.model_validate(channel), msg="告警渠道创建成功")
+
+
+@router.get("/alerts/channels/{channel_id}", summary="获取告警渠道详情")
+@api_error_handler
+def get_alert_channel_endpoint(channel_id: int, db: Session = Depends(get_db)) -> ResponseModel:
+    channel = get_alert_channel(db, channel_id)
+    if not channel:
+        return ResponseModel(code=404, msg=f"告警渠道 {channel_id} 不存在")
+    return ResponseModel(data=AlertChannelResponse.model_validate(channel), msg="获取告警渠道成功")
+
+
+@router.put("/alerts/channels/{channel_id}", summary="更新告警渠道")
+@api_error_handler
+def update_alert_channel_endpoint(channel_id: int, request: AlertChannelUpdate, db: Session = Depends(get_db)) -> ResponseModel:
+    channel = update_alert_channel(
+        db,
+        channel_id=channel_id,
+        name=request.name,
+        config=request.config,
+        enabled=request.enabled
+    )
+    if not channel:
+        return ResponseModel(code=404, msg=f"告警渠道 {channel_id} 不存在")
+    return ResponseModel(data=AlertChannelResponse.model_validate(channel), msg="告警渠道更新成功")
+
+
+@router.delete("/alerts/channels/{channel_id}", summary="删除告警渠道")
+@api_error_handler
+def delete_alert_channel_endpoint(channel_id: int, db: Session = Depends(get_db)) -> ResponseModel:
+    deleted = delete_alert_channel(db, channel_id)
+    if not deleted:
+        return ResponseModel(code=404, msg=f"告警渠道 {channel_id} 不存在")
+    return ResponseModel(data={"channel_id": channel_id}, msg="告警渠道已删除")
+
+
+@router.post("/alerts/channels/{channel_id}/test", summary="测试告警渠道")
+@api_error_handler
+def test_alert_channel_endpoint(channel_id: int, db: Session = Depends(get_db)) -> ResponseModel:
+    from app.services.alert import test_alert_channel
+    
+    channel = get_alert_channel(db, channel_id)
+    if not channel:
+        return ResponseModel(code=404, msg=f"告警渠道 {channel_id} 不存在")
+    
+    result = test_alert_channel(channel)
+    return ResponseModel(data=AlertTestResponse(**result), msg="测试完成")
+
+
+@router.get("/alerts/rules/", summary="获取告警规则列表")
+@api_error_handler
+def list_alert_rules_endpoint(enabled_only: bool = Query(False, description="只返回已启用的规则"), db: Session = Depends(get_db)) -> ResponseModel:
+    configs = get_alert_configs(db, enabled_only=enabled_only)
+    
+    data = []
+    for config in configs:
+        channel_ids = json.loads(config.channels) if isinstance(config.channels, str) else config.channels
+        channels = get_alert_channels(db)
+        channel_names = [c.name for c in channels if c.id in channel_ids]
+        
+        config_dict = {
+            "id": config.id,
+            "job_id": config.job_id,
+            "rule_type": config.rule_type,
+            "threshold": config.threshold,
+            "channels": channel_ids,
+            "channel_names": channel_names,
+            "cooldown_minutes": config.cooldown_minutes,
+            "enabled": config.enabled,
+            "created_at": config.created_at,
+            "updated_at": config.updated_at
+        }
+        data.append(AlertConfigResponse(**config_dict))
+    
+    return ResponseModel(data=data, msg="获取告警规则列表成功")
+
+
+@router.post("/alerts/rules/", summary="创建告警规则")
+@api_error_handler
+def create_alert_rule_endpoint(request: AlertConfigCreate, db: Session = Depends(get_db)) -> ResponseModel:
+    valid_rule_types = ["single_fail", "consecutive_fail", "timeout", "job_removed"]
+    if request.rule_type not in valid_rule_types:
+        return ResponseModel(code=400, msg=f"不支持的规则类型 '{request.rule_type}'")
+    
+    if request.rule_type in ["consecutive_fail", "timeout"] and request.threshold is None:
+        default_threshold = 3 if request.rule_type == "consecutive_fail" else 60
+        threshold = default_threshold
+    else:
+        threshold = request.threshold
+    
+    for channel_id in request.channels:
+        channel = get_alert_channel(db, channel_id)
+        if not channel:
+            return ResponseModel(code=400, msg=f"告警渠道 {channel_id} 不存在")
+    
+    config = create_alert_config(
+        db,
+        rule_type=request.rule_type,
+        channels=request.channels,
+        job_id=request.job_id,
+        threshold=threshold,
+        cooldown_minutes=request.cooldown_minutes,
+        enabled=request.enabled
+    )
+    
+    channel_names = [c.name for c in get_alert_channels(db) if c.id in request.channels]
+    config_dict = {
+        "id": config.id,
+        "job_id": config.job_id,
+        "rule_type": config.rule_type,
+        "threshold": config.threshold,
+        "channels": request.channels,
+        "channel_names": channel_names,
+        "cooldown_minutes": config.cooldown_minutes,
+        "enabled": config.enabled,
+        "created_at": config.created_at,
+        "updated_at": config.updated_at
+    }
+    
+    return ResponseModel(data=AlertConfigResponse(**config_dict), msg="告警规则创建成功")
+
+
+@router.get("/alerts/rules/{config_id}", summary="获取告警规则详情")
+@api_error_handler
+def get_alert_rule_endpoint(config_id: int, db: Session = Depends(get_db)) -> ResponseModel:
+    config = get_alert_config(db, config_id)
+    if not config:
+        return ResponseModel(code=404, msg=f"告警规则 {config_id} 不存在")
+    
+    channel_ids = json.loads(config.channels) if isinstance(config.channels, str) else config.channels
+    channels = get_alert_channels(db)
+    channel_names = [c.name for c in channels if c.id in channel_ids]
+    
+    config_dict = {
+        "id": config.id,
+        "job_id": config.job_id,
+        "rule_type": config.rule_type,
+        "threshold": config.threshold,
+        "channels": channel_ids,
+        "channel_names": channel_names,
+        "cooldown_minutes": config.cooldown_minutes,
+        "enabled": config.enabled,
+        "created_at": config.created_at,
+        "updated_at": config.updated_at
+    }
+    
+    return ResponseModel(data=AlertConfigResponse(**config_dict), msg="获取告警规则成功")
+
+
+@router.put("/alerts/rules/{config_id}", summary="更新告警规则")
+@api_error_handler
+def update_alert_rule_endpoint(config_id: int, request: AlertConfigUpdate, db: Session = Depends(get_db)) -> ResponseModel:
+    if request.rule_type:
+        valid_rule_types = ["single_fail", "consecutive_fail", "timeout", "job_removed"]
+        if request.rule_type not in valid_rule_types:
+            return ResponseModel(code=400, msg=f"不支持的规则类型 '{request.rule_type}'")
+    
+    if request.channels:
+        for channel_id in request.channels:
+            channel = get_alert_channel(db, channel_id)
+            if not channel:
+                return ResponseModel(code=400, msg=f"告警渠道 {channel_id} 不存在")
+    
+    config = update_alert_config(
+        db,
+        config_id=config_id,
+        job_id=request.job_id,
+        rule_type=request.rule_type,
+        threshold=request.threshold,
+        channels=request.channels,
+        cooldown_minutes=request.cooldown_minutes,
+        enabled=request.enabled
+    )
+    
+    if not config:
+        return ResponseModel(code=404, msg=f"告警规则 {config_id} 不存在")
+    
+    channel_ids = json.loads(config.channels) if isinstance(config.channels, str) else config.channels
+    channels = get_alert_channels(db)
+    channel_names = [c.name for c in channels if c.id in channel_ids]
+    
+    config_dict = {
+        "id": config.id,
+        "job_id": config.job_id,
+        "rule_type": config.rule_type,
+        "threshold": config.threshold,
+        "channels": channel_ids,
+        "channel_names": channel_names,
+        "cooldown_minutes": config.cooldown_minutes,
+        "enabled": config.enabled,
+        "created_at": config.created_at,
+        "updated_at": config.updated_at
+    }
+    
+    return ResponseModel(data=AlertConfigResponse(**config_dict), msg="告警规则更新成功")
+
+
+@router.delete("/alerts/rules/{config_id}", summary="删除告警规则")
+@api_error_handler
+def delete_alert_rule_endpoint(config_id: int, db: Session = Depends(get_db)) -> ResponseModel:
+    deleted = delete_alert_config(db, config_id)
+    if not deleted:
+        return ResponseModel(code=404, msg=f"告警规则 {config_id} 不存在")
+    return ResponseModel(data={"config_id": config_id}, msg="告警规则已删除")
+
+
+@router.get("/alerts/history/", summary="获取告警历史")
+@api_error_handler
+def list_alert_history_endpoint(
+    job_id: Optional[str] = Query(None, description="任务ID模糊搜索"),
+    status: Optional[bool] = Query(None, description="发送状态"),
+    channel_type: Optional[str] = Query(None, description="渠道类型"),
+    start_time: Optional[datetime] = Query(None, description="开始时间"),
+    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    page: int = Query(1, ge=1, description="页码"),
+    limit: int = Query(20, le=100, description="每页数量"),
+    db: Session = Depends(get_db)
+) -> ResponseModel:
+    result = list_alert_history(
+        db,
+        job_id=job_id,
+        status=status,
+        channel_type=channel_type,
+        start_time=start_time,
+        end_time=end_time,
+        page=page,
+        limit=limit
+    )
+    
+    logs = [AlertHistoryResponse.model_validate(log) for log in result["logs"]]
+    history_page = AlertHistoryPage(count=result["count"], logs=logs)
+    
+    return ResponseModel(data=history_page, msg="获取告警历史成功")
